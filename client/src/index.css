@@ -1,0 +1,29 @@
+@import "tailwindcss";
+@import "@heroui/styles";
+
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: local("Inter");
+}
+
+:root {
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  color: #f4f7f7;
+  background: #0b1115;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  letter-spacing: -0.025em;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { width: 100%; min-width: 320px; height: 100%; margin: 0; overflow: hidden; }
+
+button, input { font: inherit; letter-spacing: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { color: inherit; }
+
+::selection { background: rgba(84, 199, 165, .35); }
