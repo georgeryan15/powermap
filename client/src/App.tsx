@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, Chip } from '@heroui/react'
 import {
   Activity,
@@ -11,6 +11,7 @@ import {
   Leaf,
   LocateFixed,
   Minus,
+  Moon,
   Plus,
   Search,
   Settings2,
@@ -38,6 +39,15 @@ type StateDatum = {
 }
 
 type HoverPoint = { x: number; y: number }
+type Theme = 'light' | 'dark'
+
+const THEME_STORAGE_KEY = 'powermap-theme'
+
+function getInitialTheme(): Theme {
+  const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
+  if (savedTheme === 'light' || savedTheme === 'dark') return savedTheme
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+}
 
 const STATE_ABBREVIATIONS: Record<string, string> = {
   Alabama: 'AL', Alaska: 'AK', Arizona: 'AZ', Arkansas: 'AR', California: 'CA',
@@ -192,7 +202,7 @@ function TrendChart({ color }: { color: string }) {
       {[28, 62, 96].map((y) => <line key={y} x1="0" x2="360" y1={y} y2={y} className="chart-grid" />)}
       <path d="M0 83 C24 78 30 63 54 68 S86 91 111 72 S146 42 170 54 S199 82 227 67 S263 37 286 45 S324 76 360 50 L360 128 L0 128 Z" fill="url(#trendFill)" />
       <path d="M0 83 C24 78 30 63 54 68 S86 91 111 72 S146 42 170 54 S199 82 227 67 S263 37 286 45 S324 76 360 50" fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" />
-      <circle cx="360" cy="50" r="5" fill={color} stroke="#171b20" strokeWidth="3" />
+      <circle className="trend-chart__endpoint" cx="360" cy="50" r="5" fill={color} strokeWidth="3" />
     </svg>
   )
 }
@@ -287,6 +297,7 @@ function StatePanel({ datum, onClose }: { datum: StateDatum; onClose: () => void
 
 function App() {
   const containerRef = useRef<HTMLDivElement>(null)
+  const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [hoverPoint, setHoverPoint] = useState<HoverPoint>({ x: 540, y: 280 })
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -311,6 +322,12 @@ function App() {
   const hovered = hoveredId ? dataById.get(hoveredId) : undefined
   const selected = selectedId ? dataById.get(selectedId) : undefined
 
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = theme
+    document.documentElement.style.colorScheme = theme
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+  }, [theme])
+
   const updatePointer = (event: React.MouseEvent<SVGPathElement>) => {
     setHoverPoint({ x: event.clientX, y: event.clientY })
   }
@@ -322,10 +339,10 @@ function App() {
         <svg className="usa-map" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} aria-label="United States carbon intensity by state">
           <defs>
             <filter id="stateGlow" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#ffffff" floodOpacity=".38" />
+              <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="var(--map-highlight)" floodOpacity=".38" />
             </filter>
             <pattern id="mapGrid" width="34" height="34" patternUnits="userSpaceOnUse">
-              <path d="M 34 0 L 0 0 0 34" fill="none" stroke="rgba(255,255,255,.03)" strokeWidth="1" />
+              <path d="M 34 0 L 0 0 0 34" fill="none" stroke="var(--map-grid)" strokeWidth="1" />
             </pattern>
           </defs>
           <rect width={MAP_WIDTH} height={MAP_HEIGHT} fill="url(#mapGrid)" />
@@ -341,7 +358,7 @@ function App() {
                   key={id}
                   d={d}
                   className={`state-shape${isHovered ? ' is-hovered' : ''}${isSelected ? ' is-selected' : ''}`}
-                  fill={datum ? intensityColor(datum.intensity) : '#3b444b'}
+                  fill={datum ? intensityColor(datum.intensity) : 'var(--map-missing)'}
                   onMouseEnter={() => setHoveredId(id)}
                   onMouseMove={updatePointer}
                   onMouseLeave={() => setHoveredId(null)}
@@ -384,6 +401,17 @@ function App() {
           <button className="search-control"><Search size={16} /><span>Find a state or plant</span><kbd>⌘ K</kbd></button>
           <div className="topbar-actions">
             <button className="metric-select"><span className="metric-dot" /> Carbon intensity <ChevronDown size={14} /></button>
+            <Button
+              isIconOnly
+              size="sm"
+              variant="secondary"
+              className="glass-button theme-toggle"
+              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+              aria-pressed={theme === 'light'}
+              onPress={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+            >
+              {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+            </Button>
             <Button isIconOnly size="sm" variant="secondary" className="glass-button" aria-label="Map settings"><Settings2 size={17} /></Button>
           </div>
         </header>
