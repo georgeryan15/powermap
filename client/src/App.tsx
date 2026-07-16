@@ -1,5 +1,22 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Button, Chip } from '@heroui/react'
+import { useLayoutEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
+import {
+  Button,
+  ButtonGroup,
+  Card,
+  Chip,
+  Drawer,
+  Kbd,
+  Link,
+  ProgressCircle,
+  ScrollShadow,
+  Separator,
+  Slider,
+  Surface,
+  Tabs,
+  Tooltip,
+  useOverlayState,
+} from '@heroui/react'
 import {
   Activity,
   ArrowLeft,
@@ -17,14 +34,12 @@ import {
   Settings2,
   Sun,
   Wind,
-  X,
   Zap,
 } from 'lucide-react'
 import { geoAlbersUsa, geoPath } from 'd3-geo'
 import { feature } from 'topojson-client'
 import type { Feature, FeatureCollection, Geometry } from 'geojson'
 import statesAtlas from 'us-atlas/states-10m.json'
-import './App.css'
 
 type StateDatum = {
   id: string
@@ -42,6 +57,8 @@ type HoverPoint = { x: number; y: number }
 type Theme = 'light' | 'dark'
 
 const THEME_STORAGE_KEY = 'powermap-theme'
+const CONTROL_BUTTON_CLASS = 'h-9 min-h-9 w-9 min-w-9 rounded-xl border border-border bg-surface/80 text-foreground shadow-sm backdrop-blur-lg hover:bg-surface-hover'
+const PANEL_CARD_CLASS = 'gap-0 rounded-[20px] border border-border/70 bg-surface-secondary/70 p-4 shadow-none'
 
 function getInitialTheme(): Theme {
   const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
@@ -139,19 +156,29 @@ function intensityColor(value: number) {
   return '#a84537'
 }
 
-function RingStat({ value, color, label }: { value: number; color: string; label: string }) {
-  const dash = `${Math.round(value * 1.82)} 182`
+function IconControl({ children, label, onPress }: { children: ReactNode; label: string; onPress?: () => void }) {
   return (
-    <div className="ring-stat">
-      <div className="ring-wrap">
-        <svg viewBox="0 0 72 72" aria-hidden="true">
-          <circle className="ring-track" cx="36" cy="36" r="29" />
-          <circle className="ring-progress" style={{ stroke: color, strokeDasharray: dash }} cx="36" cy="36" r="29" />
-        </svg>
-        <span>{value}%</span>
-      </div>
-      <p>{label}</p>
-    </div>
+    <Tooltip delay={250}>
+      <Button isIconOnly size="sm" variant="secondary" className={CONTROL_BUTTON_CLASS} aria-label={label} onPress={onPress}>
+        {children}
+      </Button>
+      <Tooltip.Content>{label}</Tooltip.Content>
+    </Tooltip>
+  )
+}
+
+function RingStat({ value, color, label }: { value: number; color: string; label: string }) {
+  return (
+    <Card variant="secondary" className="relative h-32 min-w-0 items-center justify-center gap-0 rounded-[17px] p-0 shadow-none">
+      <ProgressCircle value={value} aria-label={`${label}: ${value}%`} className="relative size-[82px]">
+        <ProgressCircle.Track className="size-[72px]!">
+          <ProgressCircle.TrackCircle className="stroke-default" />
+          <ProgressCircle.FillCircle style={{ stroke: color }} />
+        </ProgressCircle.Track>
+        <span className="absolute text-[19px] font-bold text-foreground">{value}%</span>
+      </ProgressCircle>
+      <p className="absolute top-[calc(100%+8px)] text-[11px] font-medium whitespace-nowrap text-muted">{label}</p>
+    </Card>
   )
 }
 
@@ -160,143 +187,222 @@ function HoverCard({ datum, point }: { datum: StateDatum; point: HoverPoint }) {
   const top = Math.max(90, Math.min(point.y - 112, window.innerHeight - 306))
 
   return (
-    <div className="hover-card" style={{ left, top }} role="tooltip">
-      <div className="hover-card__head">
+    <Card
+      className="pointer-events-none fixed z-30 w-[430px] gap-0 overflow-hidden rounded-[22px] border border-border-secondary bg-overlay/95 p-0 text-foreground shadow-overlay max-[470px]:w-[calc(100vw-20px)]"
+      style={{ left, top }}
+      role="tooltip"
+    >
+      <Card.Header className="flex-row justify-between gap-2.5 px-[18px] pt-[17px]">
         <div>
-          <div className="hover-card__title"><span className="flag">🇺🇸</span>{datum.name}</div>
-          <p>16 Jul 2026, 15:30 EDT</p>
+          <Card.Title className="flex items-center gap-2 text-lg leading-tight font-semibold">
+            <span className="text-[17px]">🇺🇸</span>{datum.name}
+          </Card.Title>
+          <Card.Description className="mt-1 text-xs">16 Jul 2026, 15:30 EDT</Card.Description>
         </div>
-        <Chip className="status-chip" size="sm" variant="secondary"><Activity size={13} /> Live estimate</Chip>
-      </div>
-      <div className="hover-stats">
-        <div className="intensity-stat" style={{ backgroundColor: intensityColor(datum.intensity) }}>
-          <strong>{datum.intensity}</strong>
-          <span>gCO₂e/kWh</span>
-          <p>Carbon intensity</p>
+        <Chip color="success" size="sm" variant="soft" className="shrink-0">
+          <Activity size={13} />
+          <Chip.Label>Live estimate</Chip.Label>
+        </Chip>
+      </Card.Header>
+      <Card.Content className="mt-[17px] grid grid-cols-[1fr_.82fr_1.28fr] gap-2.5 px-[18px]">
+        <div className="relative flex h-32 min-w-0 flex-col items-center justify-center rounded-[17px] text-[#10191a] shadow-[inset_0_1px_0_rgba(255,255,255,.3)]" style={{ backgroundColor: intensityColor(datum.intensity) }}>
+          <strong className="text-3xl leading-none">{datum.intensity}</strong>
+          <span className="mt-1 text-[11px] font-bold">gCO₂e/kWh</span>
+          <p className="absolute top-[calc(100%+8px)] text-[11px] font-medium whitespace-nowrap text-muted">Carbon intensity</p>
         </div>
         <RingStat value={datum.renewable} color="#55c5a5" label="Renewable" />
-        <div className="mix-stat">
-          <div className="mix-stat__value"><strong>{datum.output}</strong><span>GW</span></div>
-          <div className="spark-bars" aria-hidden="true">
+        <Card variant="secondary" className="relative h-32 min-w-0 gap-0 rounded-[17px] p-3.5 shadow-none">
+          <div className="flex items-baseline gap-1"><strong className="text-2xl">{datum.output}</strong><span className="text-[11px] text-muted">GW</span></div>
+          <div className="mt-2 flex h-[54px] items-end gap-[3px]" aria-hidden="true">
             {[35, 48, 56, 49, 70, 77, 64, 86, 78, 91, 83, 88].map((height, index) => (
-              <i key={index} style={{ height: `${height}%` }} />
+              <i key={index} className="min-w-0.5 flex-1 rounded-t-sm bg-gradient-to-b from-[#65ceb0] to-[#459d87] opacity-90" style={{ height: `${height}%` }} />
             ))}
           </div>
-          <p>Power generated</p>
-        </div>
-      </div>
-      <div className="hover-card__hint">Click to explore {datum.abbr} generation</div>
-    </div>
+          <p className="absolute top-[calc(100%+8px)] text-[11px] font-medium whitespace-nowrap text-muted">Power generated</p>
+        </Card>
+      </Card.Content>
+      <Card.Footer className="mt-[30px] border-t border-separator bg-background-secondary px-[18px] py-2.5 text-[11px] text-muted">
+        Click to explore {datum.abbr} generation
+      </Card.Footer>
+    </Card>
   )
 }
 
 function TrendChart({ color }: { color: string }) {
   return (
-    <svg className="trend-chart" viewBox="0 0 360 128" preserveAspectRatio="none" aria-label="24 hour carbon intensity trend">
+    <svg className="mt-2 h-[120px] w-full overflow-visible" viewBox="0 0 360 128" preserveAspectRatio="none" aria-label="24 hour carbon intensity trend">
       <defs>
         <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor={color} stopOpacity=".3" />
           <stop offset="1" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>
-      {[28, 62, 96].map((y) => <line key={y} x1="0" x2="360" y1={y} y2={y} className="chart-grid" />)}
+      {[28, 62, 96].map((y) => <line key={y} x1="0" x2="360" y1={y} y2={y} className="stroke-separator [stroke-dasharray:3_4]" />)}
       <path d="M0 83 C24 78 30 63 54 68 S86 91 111 72 S146 42 170 54 S199 82 227 67 S263 37 286 45 S324 76 360 50 L360 128 L0 128 Z" fill="url(#trendFill)" />
       <path d="M0 83 C24 78 30 63 54 68 S86 91 111 72 S146 42 170 54 S199 82 227 67 S263 37 286 45 S324 76 360 50" fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" />
-      <circle className="trend-chart__endpoint" cx="360" cy="50" r="5" fill={color} strokeWidth="3" />
+      <circle cx="360" cy="50" r="5" fill={color} className="stroke-overlay" strokeWidth="3" />
     </svg>
   )
 }
 
+function SectionHeading({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
+  return (
+    <Card.Header className="flex-row items-start justify-between gap-3">
+      <div>
+        <Card.Title className="text-[15px] leading-tight font-semibold">{title}</Card.Title>
+        <Card.Description className="mt-1 text-[11px] leading-tight">{description}</Card.Description>
+      </div>
+      {action}
+    </Card.Header>
+  )
+}
+
 function StatePanel({ datum, onClose }: { datum: StateDatum; onClose: () => void }) {
+  const drawerState = useOverlayState({ defaultOpen: true, onOpenChange: (isOpen) => { if (!isOpen) onClose() } })
   const carbonColor = intensityColor(datum.intensity)
   const plants = [
     { name: `${datum.name} Energy Center`, type: 'Natural gas', cap: '1.8 GW', icon: Factory, color: '#e28154' },
     { name: `${datum.name} Wind Project`, type: 'Wind', cap: '940 MW', icon: Wind, color: '#50c7aa' },
-    { name: `Sunrise Solar Farm`, type: 'Solar', cap: '610 MW', icon: Sun, color: '#f7d650' },
+    { name: 'Sunrise Solar Farm', type: 'Solar', cap: '610 MW', icon: Sun, color: '#f7d650' },
   ]
 
   return (
-    <aside className="state-panel" aria-label={`${datum.name} electricity details`}>
-      <div className="panel-scroll">
-        <header className="panel-header">
-          <Button isIconOnly size="sm" variant="ghost" className="panel-icon-button" onPress={onClose} aria-label="Close state details">
-            <ArrowLeft size={20} />
-          </Button>
-          <div className="state-identity">
-            <span className="state-monogram">{datum.abbr}</span>
-            <div><h2>{datum.name}</h2><p>United States · Live grid</p></div>
-          </div>
-          <Button isIconOnly size="sm" variant="ghost" className="panel-icon-button" onPress={onClose} aria-label="Close">
-            <X size={18} />
-          </Button>
-        </header>
+    <Drawer state={drawerState}>
+      <Drawer.Backdrop variant="transparent" isDismissable>
+        <Drawer.Content
+          placement="left"
+          className="top-[84px]! right-auto! bottom-4! left-[18px]! h-auto! w-auto! max-[800px]:top-[76px]! max-[800px]:right-2.5! max-[800px]:bottom-2.5! max-[800px]:left-2.5!"
+        >
+          <Drawer.Dialog
+            aria-label={`${datum.name} electricity details`}
+            className="h-full! w-[418px]! max-w-[calc(100vw-36px)]! overflow-hidden rounded-[27px]! border border-border bg-overlay/95 p-0! shadow-overlay max-[800px]:w-full! max-[800px]:max-w-none!"
+          >
+            <Drawer.Header className="mb-0 flex-row items-center gap-2.5 px-[17px] pt-[17px]">
+              <Button isIconOnly size="sm" variant="ghost" className="h-[34px] min-h-[34px] w-[34px] min-w-[34px] rounded-[11px]" onPress={drawerState.close} aria-label="Close state details">
+                <ArrowLeft size={20} />
+              </Button>
+              <div className="flex min-w-0 flex-1 items-center gap-[11px]">
+                <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#74cfb4] text-xs font-extrabold text-[#101918]">{datum.abbr}</span>
+                <div className="min-w-0">
+                  <Drawer.Heading className="overflow-hidden text-ellipsis whitespace-nowrap text-[19px] leading-tight font-semibold">{datum.name}</Drawer.Heading>
+                  <p className="mt-0.5 text-[11px] text-muted">United States · Live grid</p>
+                </div>
+              </div>
+              <Drawer.CloseTrigger className="static h-[34px] min-h-[34px] w-[34px] min-w-[34px] rounded-[11px]" aria-label="Close" />
+            </Drawer.Header>
 
-        <div className="panel-tabs" role="tablist" aria-label="State data view">
-          <button className="active" role="tab" aria-selected="true">Electricity</button>
-          <button role="tab" aria-selected="false">Emissions</button>
-        </div>
+            <Drawer.Body className="m-0 overflow-hidden p-0">
+              <ScrollShadow className="h-full overflow-y-auto px-[17px] pb-[17px]" hideScrollBar size={32}>
+                <Tabs defaultSelectedKey="electricity" className="mt-[15px]">
+                  <Tabs.List aria-label="State data view" className="grid h-[42px] grid-cols-2 rounded-[14px] border border-border bg-background-secondary p-1">
+                    <Tabs.Tab id="electricity" className="justify-center rounded-[10px] text-xs font-semibold">Electricity</Tabs.Tab>
+                    <Tabs.Tab id="emissions" className="justify-center rounded-[10px] text-xs font-semibold">Emissions</Tabs.Tab>
+                  </Tabs.List>
 
-        <section className="panel-section overview-section">
-          <div className="section-heading">
-            <div><h3>Current electricity mix</h3><p>Updated 4 minutes ago</p></div>
-            <Chip className="status-chip" size="sm" variant="secondary">Live</Chip>
-          </div>
-          <div className="primary-stat-row">
-            <div className="carbon-tile" style={{ backgroundColor: carbonColor }}>
-              <Zap size={17} />
-              <strong>{datum.intensity}</strong>
-              <span>gCO₂e/kWh</span>
-            </div>
-            <div className="primary-copy">
-              <p>Carbon intensity</p>
-              <strong>{datum.change <= 0 ? '↓' : '↑'} {Math.abs(datum.change)}%</strong>
-              <span>from yesterday at this time</span>
-            </div>
-          </div>
-          <div className="mix-bar" aria-label="Generation source mix">
-            {datum.mix.map((source) => <i key={source.name} style={{ width: `${source.value}%`, backgroundColor: source.color }} />)}
-          </div>
-          <div className="mix-legend">
-            {datum.mix.map((source) => (
-              <div key={source.name}><i style={{ backgroundColor: source.color }} /><span>{source.name}</span><strong>{source.value}%</strong></div>
-            ))}
-          </div>
-        </section>
+                  <Tabs.Panel id="electricity" className="mt-4 flex flex-col gap-3 outline-none">
+                    <Card className={PANEL_CARD_CLASS}>
+                      <SectionHeading
+                        title="Current electricity mix"
+                        description="Updated 4 minutes ago"
+                        action={<Chip color="success" size="sm" variant="soft"><Chip.Label>Live</Chip.Label></Chip>}
+                      />
+                      <Card.Content className="gap-0">
+                        <div className="mt-4 flex items-center gap-[15px]">
+                          <div className="grid h-24 w-[108px] shrink-0 grid-cols-[auto_auto] content-center justify-center gap-x-1 rounded-[18px] text-[#101817] shadow-[inset_0_1px_0_rgba(255,255,255,.32)]" style={{ backgroundColor: carbonColor }}>
+                            <Zap size={17} className="self-center" />
+                            <strong className="text-3xl leading-none">{datum.intensity}</strong>
+                            <span className="col-span-2 mt-1 text-center text-[11px] font-bold">gCO₂e/kWh</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <p className="mb-[7px] text-xs text-muted">Carbon intensity</p>
+                            <strong className="text-xl text-[#249777] dark:text-[#55c5a5]">{datum.change <= 0 ? '↓' : '↑'} {Math.abs(datum.change)}%</strong>
+                            <span className="mt-1 text-[10px] text-muted">from yesterday at this time</span>
+                          </div>
+                        </div>
+                        <div className="my-[13px] mt-[18px] flex h-[9px] gap-0.5 overflow-hidden rounded-full" aria-label="Generation source mix">
+                          {datum.mix.map((source) => <i key={source.name} className="block min-w-1" style={{ width: `${source.value}%`, backgroundColor: source.color }} />)}
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                          {datum.mix.map((source) => (
+                            <div className="grid grid-cols-[7px_1fr_auto] items-center gap-[7px] text-[10px]" key={source.name}>
+                              <i className="size-[7px] rounded-[3px]" style={{ backgroundColor: source.color }} />
+                              <span className="text-muted">{source.name}</span>
+                              <strong className="font-semibold text-foreground">{source.value}%</strong>
+                            </div>
+                          ))}
+                        </div>
+                      </Card.Content>
+                    </Card>
 
-        <section className="panel-section metrics-section">
-          <div className="mini-metric"><Leaf size={18} /><div><strong>{datum.renewable}%</strong><span>Renewable</span></div></div>
-          <div className="mini-metric"><BatteryCharging size={18} /><div><strong>{datum.clean}%</strong><span>Carbon-free</span></div></div>
-          <div className="mini-metric"><Activity size={18} /><div><strong>{datum.output} GW</strong><span>Generated</span></div></div>
-        </section>
+                    <div className="grid grid-cols-3 gap-[7px]">
+                      {[
+                        { icon: Leaf, value: `${datum.renewable}%`, label: 'Renewable' },
+                        { icon: BatteryCharging, value: `${datum.clean}%`, label: 'Carbon-free' },
+                        { icon: Activity, value: `${datum.output} GW`, label: 'Generated' },
+                      ].map(({ icon: Icon, value, label }) => (
+                        <Card variant="secondary" className="min-w-0 flex-row items-center gap-[7px] rounded-[13px] p-2.5 shadow-none" key={label}>
+                          <Icon size={18} className="shrink-0 text-[#249777] dark:text-[#55c5a5]" />
+                          <div className="min-w-0">
+                            <strong className="block text-xs whitespace-nowrap">{value}</strong>
+                            <span className="mt-0.5 block overflow-hidden text-[9px] text-ellipsis text-muted">{label}</span>
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
 
-        <section className="panel-section trend-section">
-          <div className="section-heading">
-            <div><h3>Carbon intensity</h3><p>Past 24 hours</p></div>
-            <button className="quiet-button"><Settings2 size={15} /> Hourly</button>
-          </div>
-          <TrendChart color={carbonColor} />
-          <div className="chart-axis"><span>12am</span><span>6am</span><span>12pm</span><span>Now</span></div>
-        </section>
+                    <Card className={PANEL_CARD_CLASS}>
+                      <SectionHeading title="Largest power plants" description="By operating capacity" action={<span className="text-[10px] text-muted">12 total</span>} />
+                      <Card.Content className="mt-[11px] gap-1">
+                        {plants.map(({ name, type, cap, icon: Icon, color }) => (
+                          <Button fullWidth variant="ghost" className="grid h-auto min-h-0 grid-cols-[34px_1fr_auto] items-center gap-2 rounded-xl p-2 text-left" key={name}>
+                            <span className="grid size-[34px] place-items-center rounded-[11px] bg-default" style={{ color }}><Icon size={18} /></span>
+                            <span className="min-w-0">
+                              <strong className="block overflow-hidden text-[11px] font-semibold text-ellipsis whitespace-nowrap">{name}</strong>
+                              <small className="mt-0.5 block text-[9px] text-muted">{type}</small>
+                            </span>
+                            <span className="text-[10px] text-muted">{cap}</span>
+                          </Button>
+                        ))}
+                      </Card.Content>
+                    </Card>
+                  </Tabs.Panel>
 
-        <section className="panel-section plants-section">
-          <div className="section-heading"><div><h3>Largest power plants</h3><p>By operating capacity</p></div><span className="plant-count">12 total</span></div>
-          <div className="plant-list">
-            {plants.map(({ name, type, cap, icon: Icon, color }) => (
-              <button className="plant-row" key={name}>
-                <span className="plant-icon" style={{ color }}><Icon size={18} /></span>
-                <span><strong>{name}</strong><small>{type}</small></span>
-                <em>{cap}</em>
-              </button>
-            ))}
-          </div>
-        </section>
-      </div>
-    </aside>
+                  <Tabs.Panel id="emissions" className="mt-4 flex flex-col gap-3 outline-none">
+                    <Card className={PANEL_CARD_CLASS}>
+                      <SectionHeading
+                        title="Carbon intensity"
+                        description="Past 24 hours"
+                        action={<Button size="sm" variant="secondary" className="h-7 min-h-7 rounded-lg px-2 text-[10px]"><Settings2 size={14} />Hourly</Button>}
+                      />
+                      <Card.Content className="gap-0">
+                        <TrendChart color={carbonColor} />
+                        <div className="-mt-1 flex justify-between text-[10px] text-muted"><span>12am</span><span>6am</span><span>12pm</span><span>Now</span></div>
+                      </Card.Content>
+                    </Card>
+                    <Card className={PANEL_CARD_CLASS}>
+                      <SectionHeading title="Daily movement" description="Compared with this time yesterday" />
+                      <Card.Content className="mt-4 flex-row items-end justify-between gap-4">
+                        <div>
+                          <strong className="text-3xl" style={{ color: carbonColor }}>{datum.intensity}</strong>
+                          <p className="mt-1 text-[11px] text-muted">gCO₂e per kWh</p>
+                        </div>
+                        <Chip color={datum.change <= 0 ? 'success' : 'warning'} variant="soft">
+                          <Chip.Label>{datum.change <= 0 ? '↓' : '↑'} {Math.abs(datum.change)}%</Chip.Label>
+                        </Chip>
+                      </Card.Content>
+                    </Card>
+                  </Tabs.Panel>
+                </Tabs>
+              </ScrollShadow>
+            </Drawer.Body>
+          </Drawer.Dialog>
+        </Drawer.Content>
+      </Drawer.Backdrop>
+    </Drawer>
   )
 }
 
 function App() {
-  const containerRef = useRef<HTMLDivElement>(null)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [hoverPoint, setHoverPoint] = useState<HoverPoint>({ x: 540, y: 280 })
@@ -321,44 +427,53 @@ function App() {
 
   const hovered = hoveredId ? dataById.get(hoveredId) : undefined
   const selected = selectedId ? dataById.get(selectedId) : undefined
+  const isDark = theme === 'dark'
 
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme
+    document.documentElement.classList.toggle('dark', isDark)
     document.documentElement.style.colorScheme = theme
     window.localStorage.setItem(THEME_STORAGE_KEY, theme)
-  }, [theme])
+  }, [isDark, theme])
 
   const updatePointer = (event: React.MouseEvent<SVGPathElement>) => {
     setHoverPoint({ x: event.clientX, y: event.clientY })
   }
 
   return (
-    <main className="app-shell">
-      <div className="map-surface" ref={containerRef}>
-        <div className="ocean-glow" />
-        <svg className="usa-map" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} aria-label="United States carbon intensity by state">
+    <main className="fixed inset-0 min-w-80 overflow-hidden bg-background font-sans text-foreground antialiased selection:bg-success/30">
+      <div className={`relative isolate size-full overflow-hidden ${isDark ? 'bg-[radial-gradient(circle_at_54%_42%,#1b2930_0,#10191e_42%,#090f13_100%)]' : 'bg-[radial-gradient(circle_at_54%_42%,#fff_0,#edf3f3_48%,#dfe9ea_100%)]'}`}>
+        <div className={`pointer-events-none absolute inset-0 ${isDark ? 'bg-[radial-gradient(ellipse_at_center,rgba(49,75,82,.18),transparent_62%)]' : 'bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,.62),transparent_66%)]'}`} aria-hidden="true" />
+        <svg className="absolute top-1/2 left-1/2 h-auto w-[min(112vw,1540px)] -translate-x-1/2 -translate-y-[49%] overflow-visible max-[800px]:top-[48%] max-[800px]:w-[170vw]" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} aria-label="United States carbon intensity by state">
           <defs>
             <filter id="stateGlow" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="var(--map-highlight)" floodOpacity=".38" />
+              <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor={isDark ? '#ffffff' : '#132a2e'} floodOpacity=".38" />
             </filter>
             <pattern id="mapGrid" width="34" height="34" patternUnits="userSpaceOnUse">
-              <path d="M 34 0 L 0 0 0 34" fill="none" stroke="var(--map-grid)" strokeWidth="1" />
+              <path d="M 34 0 L 0 0 0 34" fill="none" stroke={isDark ? 'rgba(255,255,255,.03)' : 'rgba(27,51,55,.055)'} strokeWidth="1" />
             </pattern>
           </defs>
           <rect width={MAP_WIDTH} height={MAP_HEIGHT} fill="url(#mapGrid)" />
-          <g className="states-layer" style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}>
+          <g className="transition-transform duration-300 ease-out motion-reduce:transition-none" style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}>
             {stateFeatures.map((state) => {
               const id = String(state.id).padStart(2, '0')
               const datum = dataById.get(id)
               const d = path(state as Feature<Geometry>) ?? ''
               const isHovered = hoveredId === id
               const isSelected = selectedId === id
+              const highlightClass = isDark
+                ? 'hover:stroke-white focus-visible:stroke-white'
+                : 'hover:stroke-[#132a2e] focus-visible:stroke-[#132a2e]'
+              const activeClass = isHovered || isSelected
+                ? `${isDark ? 'stroke-white' : 'stroke-[#132a2e]'} ${isSelected ? 'stroke-[3px]' : 'stroke-[2.2px]'}`
+                : isDark ? 'stroke-[rgba(13,24,27,.5)] stroke-[1.2px]' : 'stroke-[rgba(255,255,255,.72)] stroke-[1.2px]'
               return (
                 <path
                   key={id}
                   d={d}
-                  className={`state-shape${isHovered ? ' is-hovered' : ''}${isSelected ? ' is-selected' : ''}`}
-                  fill={datum ? intensityColor(datum.intensity) : 'var(--map-missing)'}
+                  className={`cursor-pointer outline-none [vector-effect:non-scaling-stroke] transition-[opacity,stroke,stroke-width] duration-150 ${highlightClass} ${activeClass}`}
+                  style={isSelected ? { filter: 'url(#stateGlow)' } : undefined}
+                  fill={datum ? intensityColor(datum.intensity) : isDark ? '#3b444b' : '#aab8ba'}
                   onMouseEnter={() => setHoveredId(id)}
                   onMouseMove={updatePointer}
                   onMouseLeave={() => setHoveredId(null)}
@@ -378,15 +493,15 @@ function App() {
               const width = bounds[1][0] - bounds[0][0]
               if (!datum || width < 19 || datum.abbr === 'AK' || datum.abbr === 'HI') return null
               const [x, y] = path.centroid(state as Feature<Geometry>)
-              return <text key={`label-${id}`} x={x} y={y} className="state-label">{datum.abbr}</text>
+              return <text key={`label-${id}`} x={x} y={y} className="pointer-events-none text-[11px] font-bold tracking-tight" fill={isDark ? 'rgba(11,20,22,.58)' : 'rgba(11,30,31,.68)'} textAnchor="middle" dominantBaseline="central">{datum.abbr}</text>
             })}
             {PLANTS.map((plant) => {
               const point = projection(plant.coordinates as [number, number])
               if (!point) return null
               return (
-                <g className="plant-marker" key={plant.name} transform={`translate(${point[0]}, ${point[1]})`}>
-                  <circle className="plant-marker__pulse" r={5 + plant.capacity / 2} />
-                  <circle className="plant-marker__core" r={2.8} />
+                <g className="pointer-events-none" key={plant.name} transform={`translate(${point[0]}, ${point[1]})`}>
+                  <circle r={5 + plant.capacity / 2} fill={isDark ? 'rgba(255,255,255,.1)' : 'rgba(17,42,45,.1)'} stroke={isDark ? 'rgba(255,255,255,.42)' : 'rgba(17,42,45,.42)'} strokeWidth=".6" />
+                  <circle r="2.8" fill={isDark ? '#fff' : '#173538'} stroke={isDark ? 'rgba(16,25,28,.75)' : 'rgba(255,255,255,.9)'} strokeWidth="1.2" />
                   <title>{plant.name} · {plant.capacity} GW</title>
                 </g>
               )
@@ -394,50 +509,94 @@ function App() {
           </g>
         </svg>
 
-        <header className="topbar">
-          <a className="brand" href="#" aria-label="PowerMap home"><span className="brand-mark"><Zap size={17} fill="currentColor" /></span><span>PowerMap</span></a>
-          <div className="topbar-divider" />
-          <Chip className="live-chip" size="sm" variant="secondary"><i /> Live</Chip>
-          <button className="search-control"><Search size={16} /><span>Find a state or plant</span><kbd>⌘ K</kbd></button>
-          <div className="topbar-actions">
-            <button className="metric-select"><span className="metric-dot" /> Carbon intensity <ChevronDown size={14} /></button>
-            <Button
-              isIconOnly
-              size="sm"
-              variant="secondary"
-              className="glass-button theme-toggle"
-              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-              aria-pressed={theme === 'light'}
-              onPress={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
-            >
-              {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+        <Surface className="absolute top-4 right-[18px] left-[18px] z-20 flex h-14 items-center gap-3 rounded-[19px] border border-border bg-surface/85 py-2 pr-2.5 pl-3.5 shadow-surface backdrop-blur-2xl max-[800px]:top-2.5 max-[800px]:right-2.5 max-[800px]:left-2.5">
+          <Link href="#" className="gap-2 text-[17px] font-bold tracking-tight whitespace-nowrap hover:no-underline" aria-label="PowerMap home">
+            <span className="grid size-[30px] place-items-center rounded-[10px] bg-[#55c5a5] text-[#0e1917] shadow-[inset_0_0_0_1px_rgba(255,255,255,.24)]"><Zap size={17} fill="currentColor" /></span>
+            <span>PowerMap</span>
+          </Link>
+          <Separator orientation="vertical" className="h-6 max-[800px]:hidden" />
+          <Chip color="success" size="sm" variant="soft" className="max-[800px]:hidden">
+            <span className="size-1.5 rounded-full bg-success shadow-[0_0_0_4px_color-mix(in_oklab,var(--success)_18%,transparent)]" />
+            <Chip.Label>Live</Chip.Label>
+          </Chip>
+          <Button variant="ghost" className="ml-2 h-9 w-[min(310px,28vw)] justify-start gap-2 rounded-xl border border-border bg-background-secondary px-2.5 text-muted max-[800px]:hidden" aria-label="Find a state or plant">
+            <Search size={16} />
+            <span className="flex-1 text-left">Find a state or plant</span>
+            <Kbd variant="light" className="px-1.5 py-0.5 text-[11px]">⌘ K</Kbd>
+          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="secondary" className="h-9 min-h-9 gap-2 rounded-xl border border-border px-3 text-[13px] font-semibold max-[800px]:w-[38px] max-[800px]:min-w-[38px] max-[800px]:px-0" aria-label="Select map metric">
+              <span className="size-[9px] rounded-[3px] bg-[#efd458]" />
+              <span className="max-[800px]:hidden">Carbon intensity</span>
+              <ChevronDown size={14} className="max-[800px]:hidden" />
             </Button>
-            <Button isIconOnly size="sm" variant="secondary" className="glass-button" aria-label="Map settings"><Settings2 size={17} /></Button>
+            <Tooltip delay={250}>
+              <Button
+                isIconOnly
+                size="sm"
+                variant="secondary"
+                className={CONTROL_BUTTON_CLASS}
+                aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}
+                aria-pressed={!isDark}
+                onPress={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+              >
+                {isDark ? <Sun size={17} /> : <Moon size={17} />}
+              </Button>
+              <Tooltip.Content>Switch to {isDark ? 'light' : 'dark'} mode</Tooltip.Content>
+            </Tooltip>
+            <IconControl label="Map settings"><Settings2 size={17} /></IconControl>
           </div>
-        </header>
+        </Surface>
 
-        <div className="map-tools">
-          <Button isIconOnly size="sm" variant="secondary" className="glass-button" aria-label="Map layers"><Layers3 size={18} /></Button>
-          <div className="zoom-control">
-            <button aria-label="Zoom in" onClick={() => setZoom((value) => Math.min(1.2, value + .05))}><Plus size={17} /></button>
-            <button aria-label="Zoom out" onClick={() => setZoom((value) => Math.max(.92, value - .05))}><Minus size={17} /></button>
-          </div>
-          <Button isIconOnly size="sm" variant="secondary" className="glass-button" aria-label="Center map" onPress={() => setZoom(1)}><LocateFixed size={17} /></Button>
+        <div className="absolute top-[86px] right-[18px] z-10 flex flex-col gap-2 max-[800px]:right-2.5">
+          <IconControl label="Map layers"><Layers3 size={18} /></IconControl>
+          <ButtonGroup orientation="vertical" size="sm" variant="secondary" className="overflow-hidden rounded-xl border border-border bg-surface/85 shadow-surface backdrop-blur-lg">
+            <Button isIconOnly className="h-9 min-h-9 w-9 min-w-9 rounded-none" aria-label="Zoom in" onPress={() => setZoom((value) => Math.min(1.2, value + .05))}><Plus size={17} /></Button>
+            <Button isIconOnly className="h-9 min-h-9 w-9 min-w-9 rounded-none" aria-label="Zoom out" onPress={() => setZoom((value) => Math.max(.92, value - .05))}><ButtonGroup.Separator /><Minus size={17} /></Button>
+          </ButtonGroup>
+          <IconControl label="Center map" onPress={() => setZoom(1)}><LocateFixed size={17} /></IconControl>
         </div>
 
-        <div className="map-caption"><Info size={13} /> Select a state to explore its power mix</div>
+        <Chip variant="secondary" className="absolute bottom-[94px] left-1/2 z-[8] -translate-x-1/2 border border-border bg-surface/80 px-2.5 py-1.5 text-xs text-muted backdrop-blur-lg max-[800px]:hidden">
+          <Info size={13} />
+          <Chip.Label>Select a state to explore its power mix</Chip.Label>
+        </Chip>
 
-        <div className="timeline-card">
-          <div className="timeline-head"><div><span>16 July 2026</span><strong>15:30 EDT</strong></div><button><Activity size={14} /> Live data</button></div>
-          <div className="timeline-track"><i /><b /></div>
-          <div className="timeline-labels"><span>12am</span><span>6am</span><span>12pm</span><span>Now</span></div>
-        </div>
+        <Card className="absolute bottom-4 left-[18px] z-10 h-[102px] w-[330px] gap-0 rounded-[17px] border border-border bg-surface/85 px-3.5 py-[13px] shadow-surface backdrop-blur-xl max-[800px]:bottom-2.5 max-[800px]:left-2.5 max-[800px]:h-[90px] max-[800px]:w-[220px]">
+          <Card.Header className="flex-row items-start justify-between">
+            <div>
+              <Card.Description className="text-[11px] leading-tight">16 July 2026</Card.Description>
+              <Card.Title className="mt-0.5 text-[13px] leading-tight font-semibold">15:30 EDT</Card.Title>
+            </div>
+            <Button size="sm" variant="ghost" className="h-6 min-h-6 gap-1 px-1 text-[11px] text-success"><Activity size={14} />Live data</Button>
+          </Card.Header>
+          <Card.Content className="gap-0">
+            <Slider defaultValue={97} minValue={0} maxValue={100} aria-label="Timeline position" className="mt-1.5 gap-0">
+              <Slider.Track className="h-4! border-x-[6px]!">
+                <Slider.Fill className="bg-gradient-to-r! from-[#4dc790]! via-[#edd65b]! to-[#db864a]! opacity-70" />
+                <Slider.Thumb className="w-4! after:size-3! after:rounded-full! after:bg-foreground!" />
+              </Slider.Track>
+            </Slider>
+            <div className="-mt-0.5 flex justify-between text-[10px] text-muted"><span>12am</span><span>6am</span><span>12pm</span><span>Now</span></div>
+          </Card.Content>
+        </Card>
 
-        <div className="legend-card">
-          <div className="legend-title"><div><span>Carbon intensity</span><strong>gCO₂e/kWh</strong></div><button aria-label="About the carbon intensity scale"><Info size={14} /></button></div>
-          <div className="legend-gradient" />
-          <div className="legend-labels"><span>0</span><span>200</span><span>400</span><span>600</span><span>800+</span></div>
-        </div>
+        <Card className="absolute right-[18px] bottom-4 z-10 w-[310px] gap-0 rounded-[17px] border border-border bg-surface/85 px-3.5 py-3 shadow-surface backdrop-blur-xl max-[800px]:right-2.5 max-[800px]:bottom-2.5 max-[800px]:w-[146px]">
+          <Card.Header className="flex-row items-center justify-between">
+            <div className="flex flex-1 items-center justify-between">
+              <Card.Title className="text-[13px] leading-tight font-semibold">Carbon intensity</Card.Title>
+              <span className="text-[10px] text-muted max-[800px]:hidden">gCO₂e/kWh</span>
+            </div>
+            <Tooltip delay={250}>
+              <Button isIconOnly size="sm" variant="ghost" className="ml-1.5 h-6 min-h-6 w-6 min-w-6 text-muted" aria-label="About the carbon intensity scale"><Info size={14} /></Button>
+              <Tooltip.Content>Lower values indicate cleaner electricity</Tooltip.Content>
+            </Tooltip>
+          </Card.Header>
+          <Card.Content className="gap-0">
+            <div className="mt-2.5 h-[7px] rounded-full bg-gradient-to-r from-[#50c98d] via-[#efd458] to-[#a84537] shadow-[inset_0_0_0_1px_var(--border)]" />
+            <div className="mt-2 flex justify-between text-[10px] text-muted"><span>0</span><span className="max-[800px]:hidden">200</span><span>400</span><span className="max-[800px]:hidden">600</span><span>800+</span></div>
+          </Card.Content>
+        </Card>
 
         {hovered && !selected && <HoverCard datum={hovered} point={hoverPoint} />}
         {selected && <StatePanel datum={selected} onClose={() => setSelectedId(null)} />}
