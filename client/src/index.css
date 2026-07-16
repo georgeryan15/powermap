@@ -1,2 +1,8 @@
 @import "tailwindcss";
 @import "@heroui/styles";
+
+:root {
+  --font-sans: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  --radius: 0.4375rem;
+  --field-radius: calc(var(--radius) * 1.5);
+}

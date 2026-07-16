@@ -50,7 +50,7 @@ type StateDatum = {
   clean: number
   output: number
   change: number
-  mix: { name: string; value: number; color: string }[]
+  mix: { name: GenerationSourceName; value: number; color: string }[]
 }
 
 type HoverPoint = { x: number; y: number }
@@ -58,7 +58,17 @@ type Theme = 'light' | 'dark'
 
 const THEME_STORAGE_KEY = 'powermap-theme'
 const CONTROL_BUTTON_CLASS = 'h-9 min-h-9 w-9 min-w-9 rounded-xl border border-border bg-surface/80 text-foreground shadow-sm backdrop-blur-lg hover:bg-surface-hover'
-const PANEL_CARD_CLASS = 'gap-0 rounded-[20px] border border-border/70 bg-surface-secondary/70 p-4 shadow-none'
+const PANEL_CARD_CLASS = 'gap-0 rounded-[17px] bg-surface-secondary/70 p-4 shadow-none'
+
+const GENERATION_SOURCES = [
+  { name: 'Solar', color: '#f7d650' },
+  { name: 'Wind', color: '#50c7aa' },
+  { name: 'Hydro', color: '#64a9ee' },
+  { name: 'Nuclear', color: '#a890f8' },
+  { name: 'Fossil', color: '#e28154' },
+] as const
+
+type GenerationSourceName = (typeof GENERATION_SOURCES)[number]['name']
 
 function getInitialTheme(): Theme {
   const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
@@ -114,16 +124,35 @@ function hashName(name: string) {
   return [...name].reduce((sum, letter) => sum + letter.charCodeAt(0), 0)
 }
 
+function buildGenerationMix(seed: number): StateDatum['mix'] {
+  const primaryIndex = seed % GENERATION_SOURCES.length
+  const primaryShare = 42 + (seed % 9)
+  const remaining = 100 - primaryShare
+  const secondaryShares = [
+    Math.floor(remaining * .34),
+    Math.floor(remaining * .27),
+    Math.floor(remaining * .22),
+  ]
+  secondaryShares.push(remaining - secondaryShares.reduce((sum, value) => sum + value, 0))
+
+  let secondaryIndex = 0
+  return GENERATION_SOURCES.map((source, index) => ({
+    ...source,
+    value: index === primaryIndex ? primaryShare : secondaryShares[secondaryIndex++],
+  }))
+}
+
+function dominantGeneration(datum: StateDatum) {
+  return datum.mix.reduce((dominant, source) => source.value > dominant.value ? source : dominant)
+}
+
 function buildStateDatum(id: string, name: string): StateDatum {
   const seed = hashName(name)
   const intensity = 90 + (seed * 17) % 610
-  const renewable = 12 + (seed * 7) % 76
-  const clean = Math.min(98, renewable + 8 + (seed % 18))
-  const wind = 12 + (seed % 26)
-  const solar = 10 + ((seed * 3) % 22)
-  const hydro = 8 + ((seed * 5) % 18)
-  const nuclear = Math.max(4, 64 - wind - solar - hydro)
-  const fossil = Math.max(8, 100 - wind - solar - hydro - nuclear)
+  const mix = buildGenerationMix(seed)
+  const renewable = mix.filter((source) => source.name === 'Solar' || source.name === 'Wind' || source.name === 'Hydro').reduce((sum, source) => sum + source.value, 0)
+  const nuclear = mix.find((source) => source.name === 'Nuclear')?.value ?? 0
+  const clean = renewable + nuclear
 
   const base: StateDatum = {
     id,
@@ -134,13 +163,7 @@ function buildStateDatum(id: string, name: string): StateDatum {
     clean,
     output: Number((2.4 + ((seed * 13) % 290) / 10).toFixed(1)),
     change: (seed % 19) - 9,
-    mix: [
-      { name: 'Wind', value: wind, color: '#50c7aa' },
-      { name: 'Solar', value: solar, color: '#f7d650' },
-      { name: 'Hydro', value: hydro, color: '#64a9ee' },
-      { name: 'Nuclear', value: nuclear, color: '#a890f8' },
-      { name: 'Fossil', value: fossil, color: '#e28154' },
-    ],
+    mix,
   }
 
   return { ...base, ...STATE_OVERRIDES[name] }
@@ -169,7 +192,7 @@ function IconControl({ children, label, onPress }: { children: ReactNode; label:
 
 function RingStat({ value, color, label }: { value: number; color: string; label: string }) {
   return (
-    <Card variant="secondary" className="relative h-32 min-w-0 items-center justify-center gap-0 rounded-[17px] p-0 shadow-none">
+    <Card variant="secondary" className="relative h-32 min-w-0 items-center justify-center gap-0 rounded-[15px] p-0 shadow-none">
       <ProgressCircle value={value} aria-label={`${label}: ${value}%`} className="relative size-[82px]">
         <ProgressCircle.Track className="size-[72px]!">
           <ProgressCircle.TrackCircle className="stroke-default" />
@@ -188,7 +211,7 @@ function HoverCard({ datum, point }: { datum: StateDatum; point: HoverPoint }) {
 
   return (
     <Card
-      className="pointer-events-none fixed z-30 w-[430px] gap-0 overflow-hidden rounded-[22px] border border-border-secondary bg-overlay/95 p-0 text-foreground shadow-overlay max-[470px]:w-[calc(100vw-20px)]"
+      className="pointer-events-none fixed z-30 w-[430px] gap-0 overflow-hidden rounded-[19px] bg-overlay/95 p-0 text-foreground shadow-overlay max-[470px]:w-[calc(100vw-20px)]"
       style={{ left, top }}
       role="tooltip"
     >
@@ -205,13 +228,13 @@ function HoverCard({ datum, point }: { datum: StateDatum; point: HoverPoint }) {
         </Chip>
       </Card.Header>
       <Card.Content className="mt-[17px] grid grid-cols-[1fr_.82fr_1.28fr] gap-2.5 px-[18px]">
-        <div className="relative flex h-32 min-w-0 flex-col items-center justify-center rounded-[17px] text-[#10191a] shadow-[inset_0_1px_0_rgba(255,255,255,.3)]" style={{ backgroundColor: intensityColor(datum.intensity) }}>
+        <div className="relative flex h-32 min-w-0 flex-col items-center justify-center rounded-[15px] text-[#10191a] shadow-[inset_0_1px_0_rgba(255,255,255,.3)]" style={{ backgroundColor: intensityColor(datum.intensity) }}>
           <strong className="text-3xl leading-none">{datum.intensity}</strong>
           <span className="mt-1 text-[11px] font-bold">gCO₂e/kWh</span>
           <p className="absolute top-[calc(100%+8px)] text-[11px] font-medium whitespace-nowrap text-muted">Carbon intensity</p>
         </div>
         <RingStat value={datum.renewable} color="#55c5a5" label="Renewable" />
-        <Card variant="secondary" className="relative h-32 min-w-0 gap-0 rounded-[17px] p-3.5 shadow-none">
+        <Card variant="secondary" className="relative h-32 min-w-0 gap-0 rounded-[15px] p-3.5 shadow-none">
           <div className="flex items-baseline gap-1"><strong className="text-2xl">{datum.output}</strong><span className="text-[11px] text-muted">GW</span></div>
           <div className="mt-2 flex h-[54px] items-end gap-[3px]" aria-hidden="true">
             {[35, 48, 56, 49, 70, 77, 64, 86, 78, 91, 83, 88].map((height, index) => (
@@ -275,28 +298,28 @@ function StatePanel({ datum, onClose }: { datum: StateDatum; onClose: () => void
         >
           <Drawer.Dialog
             aria-label={`${datum.name} electricity details`}
-            className="h-full! w-[418px]! max-w-[calc(100vw-36px)]! overflow-hidden rounded-[27px]! border border-border bg-overlay/95 p-0! shadow-overlay max-[800px]:w-full! max-[800px]:max-w-none!"
+            className="h-full! w-[418px]! max-w-[calc(100vw-36px)]! overflow-hidden rounded-[23px]! bg-overlay/95 p-0! shadow-overlay max-[800px]:w-full! max-[800px]:max-w-none!"
           >
             <Drawer.Header className="mb-0 flex-row items-center gap-2.5 px-[17px] pt-[17px]">
-              <Button isIconOnly size="sm" variant="ghost" className="h-[34px] min-h-[34px] w-[34px] min-w-[34px] rounded-[11px]" onPress={drawerState.close} aria-label="Close state details">
+              <Button isIconOnly size="sm" variant="ghost" className="h-[34px] min-h-[34px] w-[34px] min-w-[34px] rounded-[9px]" onPress={drawerState.close} aria-label="Close state details">
                 <ArrowLeft size={20} />
               </Button>
               <div className="flex min-w-0 flex-1 items-center gap-[11px]">
-                <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#74cfb4] text-xs font-extrabold text-[#101918]">{datum.abbr}</span>
+                <span className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-[#74cfb4] text-xs font-extrabold text-[#101918]">{datum.abbr}</span>
                 <div className="min-w-0">
                   <Drawer.Heading className="overflow-hidden text-ellipsis whitespace-nowrap text-[19px] leading-tight font-semibold">{datum.name}</Drawer.Heading>
                   <p className="mt-0.5 text-[11px] text-muted">United States · Live grid</p>
                 </div>
               </div>
-              <Drawer.CloseTrigger className="static h-[34px] min-h-[34px] w-[34px] min-w-[34px] rounded-[11px]" aria-label="Close" />
+              <Drawer.CloseTrigger className="static h-[34px] min-h-[34px] w-[34px] min-w-[34px] rounded-[9px]" aria-label="Close" />
             </Drawer.Header>
 
             <Drawer.Body className="m-0 overflow-hidden p-0">
               <ScrollShadow className="h-full overflow-y-auto px-[17px] pb-[17px]" hideScrollBar size={32}>
                 <Tabs defaultSelectedKey="electricity" className="mt-[15px]">
-                  <Tabs.List aria-label="State data view" className="grid h-[42px] grid-cols-2 rounded-[14px] border border-border bg-background-secondary p-1">
-                    <Tabs.Tab id="electricity" className="justify-center rounded-[10px] text-xs font-semibold">Electricity</Tabs.Tab>
-                    <Tabs.Tab id="emissions" className="justify-center rounded-[10px] text-xs font-semibold">Emissions</Tabs.Tab>
+                  <Tabs.List aria-label="State data view" className="grid h-[42px] grid-cols-2 rounded-[12px] border border-border bg-background-secondary p-1">
+                    <Tabs.Tab id="electricity" className="justify-center rounded-[8px] text-xs font-semibold">Electricity</Tabs.Tab>
+                    <Tabs.Tab id="emissions" className="justify-center rounded-[8px] text-xs font-semibold">Emissions</Tabs.Tab>
                   </Tabs.List>
 
                   <Tabs.Panel id="electricity" className="mt-4 flex flex-col gap-3 outline-none">
@@ -308,7 +331,7 @@ function StatePanel({ datum, onClose }: { datum: StateDatum; onClose: () => void
                       />
                       <Card.Content className="gap-0">
                         <div className="mt-4 flex items-center gap-[15px]">
-                          <div className="grid h-24 w-[108px] shrink-0 grid-cols-[auto_auto] content-center justify-center gap-x-1 rounded-[18px] text-[#101817] shadow-[inset_0_1px_0_rgba(255,255,255,.32)]" style={{ backgroundColor: carbonColor }}>
+                          <div className="grid h-24 w-[108px] shrink-0 grid-cols-[auto_auto] content-center justify-center gap-x-1 rounded-[15px] text-[#101817] shadow-[inset_0_1px_0_rgba(255,255,255,.32)]" style={{ backgroundColor: carbonColor }}>
                             <Zap size={17} className="self-center" />
                             <strong className="text-3xl leading-none">{datum.intensity}</strong>
                             <span className="col-span-2 mt-1 text-center text-[11px] font-bold">gCO₂e/kWh</span>
@@ -340,7 +363,7 @@ function StatePanel({ datum, onClose }: { datum: StateDatum; onClose: () => void
                         { icon: BatteryCharging, value: `${datum.clean}%`, label: 'Carbon-free' },
                         { icon: Activity, value: `${datum.output} GW`, label: 'Generated' },
                       ].map(({ icon: Icon, value, label }) => (
-                        <Card variant="secondary" className="min-w-0 flex-row items-center gap-[7px] rounded-[13px] p-2.5 shadow-none" key={label}>
+                        <Card variant="secondary" className="min-w-0 flex-row items-center gap-[7px] rounded-[11px] p-2.5 shadow-none" key={label}>
                           <Icon size={18} className="shrink-0 text-[#249777] dark:text-[#55c5a5]" />
                           <div className="min-w-0">
                             <strong className="block text-xs whitespace-nowrap">{value}</strong>
@@ -355,7 +378,7 @@ function StatePanel({ datum, onClose }: { datum: StateDatum; onClose: () => void
                       <Card.Content className="mt-[11px] gap-1">
                         {plants.map(({ name, type, cap, icon: Icon, color }) => (
                           <Button fullWidth variant="ghost" className="grid h-auto min-h-0 grid-cols-[34px_1fr_auto] items-center gap-2 rounded-xl p-2 text-left" key={name}>
-                            <span className="grid size-[34px] place-items-center rounded-[11px] bg-default" style={{ color }}><Icon size={18} /></span>
+                            <span className="grid size-[34px] place-items-center rounded-[9px] bg-default" style={{ color }}><Icon size={18} /></span>
                             <span className="min-w-0">
                               <strong className="block overflow-hidden text-[11px] font-semibold text-ellipsis whitespace-nowrap">{name}</strong>
                               <small className="mt-0.5 block text-[9px] text-muted">{type}</small>
@@ -444,7 +467,7 @@ function App() {
     <main className="fixed inset-0 min-w-80 overflow-hidden bg-background font-sans text-foreground antialiased selection:bg-success/30">
       <div className={`relative isolate size-full overflow-hidden ${isDark ? 'bg-[radial-gradient(circle_at_54%_42%,#1b2930_0,#10191e_42%,#090f13_100%)]' : 'bg-[radial-gradient(circle_at_54%_42%,#fff_0,#edf3f3_48%,#dfe9ea_100%)]'}`}>
         <div className={`pointer-events-none absolute inset-0 ${isDark ? 'bg-[radial-gradient(ellipse_at_center,rgba(49,75,82,.18),transparent_62%)]' : 'bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,.62),transparent_66%)]'}`} aria-hidden="true" />
-        <svg className="absolute top-1/2 left-1/2 h-auto w-[min(112vw,1540px)] -translate-x-1/2 -translate-y-[49%] overflow-visible max-[800px]:top-[48%] max-[800px]:w-[170vw]" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} aria-label="United States carbon intensity by state">
+        <svg className="absolute top-1/2 left-1/2 h-auto w-[min(112vw,1540px)] -translate-x-1/2 -translate-y-[49%] overflow-visible max-[800px]:top-[48%] max-[800px]:w-[170vw]" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} aria-label="Dominant electricity generation source by state in the United States">
           <defs>
             <filter id="stateGlow" x="-30%" y="-30%" width="160%" height="160%">
               <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor={isDark ? '#ffffff' : '#132a2e'} floodOpacity=".38" />
@@ -458,6 +481,7 @@ function App() {
             {stateFeatures.map((state) => {
               const id = String(state.id).padStart(2, '0')
               const datum = dataById.get(id)
+              const primaryGeneration = datum ? dominantGeneration(datum) : undefined
               const d = path(state as Feature<Geometry>) ?? ''
               const isHovered = hoveredId === id
               const isSelected = selectedId === id
@@ -473,7 +497,7 @@ function App() {
                   d={d}
                   className={`cursor-pointer outline-none [vector-effect:non-scaling-stroke] transition-[opacity,stroke,stroke-width] duration-150 ${highlightClass} ${activeClass}`}
                   style={isSelected ? { filter: 'url(#stateGlow)' } : undefined}
-                  fill={datum ? intensityColor(datum.intensity) : isDark ? '#3b444b' : '#aab8ba'}
+                  fill={primaryGeneration?.color ?? (isDark ? '#3b444b' : '#aab8ba')}
                   onMouseEnter={() => setHoveredId(id)}
                   onMouseMove={updatePointer}
                   onMouseLeave={() => setHoveredId(null)}
@@ -482,7 +506,7 @@ function App() {
                   onBlur={() => setHoveredId(null)}
                   tabIndex={0}
                   role="button"
-                  aria-label={`${datum?.name}: ${datum?.intensity} grams of CO2 equivalent per kilowatt-hour`}
+                  aria-label={`${datum?.name}: ${primaryGeneration?.name} is the largest generation source at ${primaryGeneration?.value}%`}
                 />
               )
             })}
@@ -509,9 +533,9 @@ function App() {
           </g>
         </svg>
 
-        <Surface className="absolute top-4 right-[18px] left-[18px] z-20 flex h-14 items-center gap-3 rounded-[19px] border border-border bg-surface/85 py-2 pr-2.5 pl-3.5 shadow-surface backdrop-blur-2xl max-[800px]:top-2.5 max-[800px]:right-2.5 max-[800px]:left-2.5">
+        <Surface className="absolute top-4 right-[18px] left-[18px] z-20 flex h-14 items-center gap-3 rounded-[16px] bg-surface/85 py-2 pr-2.5 pl-3.5 shadow-surface backdrop-blur-2xl max-[800px]:top-2.5 max-[800px]:right-2.5 max-[800px]:left-2.5">
           <Link href="#" className="gap-2 text-[17px] font-bold tracking-tight whitespace-nowrap hover:no-underline" aria-label="PowerMap home">
-            <span className="grid size-[30px] place-items-center rounded-[10px] bg-[#55c5a5] text-[#0e1917] shadow-[inset_0_0_0_1px_rgba(255,255,255,.24)]"><Zap size={17} fill="currentColor" /></span>
+            <span className="grid size-[30px] place-items-center rounded-[8px] bg-[#55c5a5] text-[#0e1917] shadow-[inset_0_0_0_1px_rgba(255,255,255,.24)]"><Zap size={17} fill="currentColor" /></span>
             <span>PowerMap</span>
           </Link>
           <Separator orientation="vertical" className="h-6 max-[800px]:hidden" />
@@ -526,8 +550,10 @@ function App() {
           </Button>
           <div className="ml-auto flex items-center gap-2">
             <Button variant="secondary" className="h-9 min-h-9 gap-2 rounded-xl border border-border px-3 text-[13px] font-semibold max-[800px]:w-[38px] max-[800px]:min-w-[38px] max-[800px]:px-0" aria-label="Select map metric">
-              <span className="size-[9px] rounded-[3px] bg-[#efd458]" />
-              <span className="max-[800px]:hidden">Carbon intensity</span>
+              <span className="flex items-center gap-0.5" aria-hidden="true">
+                {GENERATION_SOURCES.slice(0, 3).map((source) => <i key={source.name} className="size-1.5 rounded-[2px]" style={{ backgroundColor: source.color }} />)}
+              </span>
+              <span className="max-[800px]:hidden">Primary generation</span>
               <ChevronDown size={14} className="max-[800px]:hidden" />
             </Button>
             <Tooltip delay={250}>
@@ -562,7 +588,7 @@ function App() {
           <Chip.Label>Select a state to explore its power mix</Chip.Label>
         </Chip>
 
-        <Card className="absolute bottom-4 left-[18px] z-10 h-[102px] w-[330px] gap-0 rounded-[17px] border border-border bg-surface/85 px-3.5 py-[13px] shadow-surface backdrop-blur-xl max-[800px]:bottom-2.5 max-[800px]:left-2.5 max-[800px]:h-[90px] max-[800px]:w-[220px]">
+        <Card className="absolute bottom-4 left-[18px] z-10 h-[102px] w-[330px] gap-0 rounded-[15px] bg-surface/85 px-3.5 py-[13px] shadow-surface backdrop-blur-xl max-[800px]:bottom-2.5 max-[800px]:left-2.5 max-[800px]:h-[90px] max-[800px]:w-[220px]">
           <Card.Header className="flex-row items-start justify-between">
             <div>
               <Card.Description className="text-[11px] leading-tight">16 July 2026</Card.Description>
@@ -581,20 +607,24 @@ function App() {
           </Card.Content>
         </Card>
 
-        <Card className="absolute right-[18px] bottom-4 z-10 w-[310px] gap-0 rounded-[17px] border border-border bg-surface/85 px-3.5 py-3 shadow-surface backdrop-blur-xl max-[800px]:right-2.5 max-[800px]:bottom-2.5 max-[800px]:w-[146px]">
+        <Card className="absolute right-[18px] bottom-4 z-10 w-[330px] gap-0 rounded-[15px] bg-surface/85 px-3.5 py-3 shadow-surface backdrop-blur-xl max-[800px]:right-2.5 max-[800px]:bottom-2.5 max-[800px]:w-[156px]">
           <Card.Header className="flex-row items-center justify-between">
             <div className="flex flex-1 items-center justify-between">
-              <Card.Title className="text-[13px] leading-tight font-semibold">Carbon intensity</Card.Title>
-              <span className="text-[10px] text-muted max-[800px]:hidden">gCO₂e/kWh</span>
+              <Card.Title className="text-[13px] leading-tight font-semibold">Generation source</Card.Title>
+              <span className="text-[10px] text-muted max-[800px]:hidden">Largest share</span>
             </div>
             <Tooltip delay={250}>
-              <Button isIconOnly size="sm" variant="ghost" className="ml-1.5 h-6 min-h-6 w-6 min-w-6 text-muted" aria-label="About the carbon intensity scale"><Info size={14} /></Button>
-              <Tooltip.Content>Lower values indicate cleaner electricity</Tooltip.Content>
+              <Button isIconOnly size="sm" variant="ghost" className="ml-1.5 h-6 min-h-6 w-6 min-w-6 text-muted" aria-label="About the generation source key"><Info size={14} /></Button>
+              <Tooltip.Content>Each state is coloured by its largest generation source</Tooltip.Content>
             </Tooltip>
           </Card.Header>
-          <Card.Content className="gap-0">
-            <div className="mt-2.5 h-[7px] rounded-full bg-gradient-to-r from-[#50c98d] via-[#efd458] to-[#a84537] shadow-[inset_0_0_0_1px_var(--border)]" />
-            <div className="mt-2 flex justify-between text-[10px] text-muted"><span>0</span><span className="max-[800px]:hidden">200</span><span>400</span><span className="max-[800px]:hidden">600</span><span>800+</span></div>
+          <Card.Content className="mt-2 grid grid-cols-3 gap-x-3 gap-y-2 max-[800px]:grid-cols-2">
+            {GENERATION_SOURCES.map((source) => (
+              <div className="flex min-w-0 items-center gap-1.5" key={source.name}>
+                <i className="size-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: source.color }} />
+                <span className="text-[10px] whitespace-nowrap text-muted">{source.name}</span>
+              </div>
+            ))}
           </Card.Content>
         </Card>
 
