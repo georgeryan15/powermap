@@ -1,5 +1,5 @@
-import { useLayoutEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import {
   Button,
   ButtonGroup,
@@ -119,6 +119,9 @@ const PLANTS = [
 
 const MAP_WIDTH = 1100
 const MAP_HEIGHT = 680
+const HOVER_CARD_WIDTH = 430
+const HOVER_CARD_EDGE_GAP = 16
+const HOVER_CARD_BOTTOM_GAP = 306
 
 function hashName(name: string) {
   return [...name].reduce((sum, letter) => sum + letter.charCodeAt(0), 0)
@@ -205,49 +208,56 @@ function RingStat({ value, color, label }: { value: number; color: string; label
   )
 }
 
-function HoverCard({ datum, point }: { datum: StateDatum; point: HoverPoint }) {
-  const left = Math.max(16, Math.min(point.x + 22, window.innerWidth - 452))
-  const top = Math.max(90, Math.min(point.y - 112, window.innerHeight - 306))
+function positionHoverCard(element: HTMLDivElement | null, point: HoverPoint) {
+  if (!element) return
 
+  const left = Math.max(
+    HOVER_CARD_EDGE_GAP,
+    Math.min(point.x + 22, window.innerWidth - HOVER_CARD_WIDTH - 22),
+  )
+  const top = Math.max(90, Math.min(point.y - 112, window.innerHeight - HOVER_CARD_BOTTOM_GAP))
+
+  element.style.transform = `translate3d(${Math.round(left)}px, ${Math.round(top)}px, 0)`
+}
+
+function HoverCard({ datum, tooltipRef }: { datum: StateDatum; tooltipRef: RefObject<HTMLDivElement | null> }) {
   return (
-    <Card
-      className="pointer-events-none fixed z-30 w-[430px] gap-0 overflow-hidden rounded-[19px] bg-overlay/95 p-0 text-foreground shadow-overlay max-[470px]:w-[calc(100vw-20px)]"
-      style={{ left, top }}
-      role="tooltip"
-    >
-      <Card.Header className="flex-row justify-between gap-2.5 px-[18px] pt-[17px]">
-        <div>
-          <Card.Title className="flex items-center gap-2 text-lg leading-tight font-semibold">
-            <span className="text-[17px]">🇺🇸</span>{datum.name}
-          </Card.Title>
-          <Card.Description className="mt-1 text-xs">16 Jul 2026, 15:30 EDT</Card.Description>
-        </div>
-        <Chip color="success" size="sm" variant="soft" className="shrink-0">
-          <Activity size={13} />
-          <Chip.Label>Live estimate</Chip.Label>
-        </Chip>
-      </Card.Header>
-      <Card.Content className="mt-[17px] grid grid-cols-[1fr_.82fr_1.28fr] gap-2.5 px-[18px]">
-        <div className="relative flex h-32 min-w-0 flex-col items-center justify-center rounded-[15px] text-[#10191a] shadow-[inset_0_1px_0_rgba(255,255,255,.3)]" style={{ backgroundColor: intensityColor(datum.intensity) }}>
-          <strong className="text-3xl leading-none">{datum.intensity}</strong>
-          <span className="mt-1 text-[11px] font-bold">gCO₂e/kWh</span>
-          <p className="absolute top-[calc(100%+8px)] text-[11px] font-medium whitespace-nowrap text-muted">Carbon intensity</p>
-        </div>
-        <RingStat value={datum.renewable} color="#55c5a5" label="Renewable" />
-        <Card variant="secondary" className="relative h-32 min-w-0 gap-0 rounded-[15px] p-3.5 shadow-none">
-          <div className="flex items-baseline gap-1"><strong className="text-2xl">{datum.output}</strong><span className="text-[11px] text-muted">GW</span></div>
-          <div className="mt-2 flex h-[54px] items-end gap-[3px]" aria-hidden="true">
-            {[35, 48, 56, 49, 70, 77, 64, 86, 78, 91, 83, 88].map((height, index) => (
-              <i key={index} className="min-w-0.5 flex-1 rounded-t-sm bg-gradient-to-b from-[#65ceb0] to-[#459d87] opacity-90" style={{ height: `${height}%` }} />
-            ))}
+    <div ref={tooltipRef} className="pointer-events-none fixed top-0 left-0 z-30 will-change-transform" role="tooltip">
+      <Card className="w-[430px] gap-0 overflow-hidden rounded-[19px] bg-overlay/95 p-0 text-foreground shadow-overlay max-[470px]:w-[calc(100vw-20px)]">
+        <Card.Header className="flex-row justify-between gap-2.5 px-[18px] pt-[17px]">
+          <div>
+            <Card.Title className="flex items-center gap-2 text-lg leading-tight font-semibold">
+              <span className="text-[17px]">🇺🇸</span>{datum.name}
+            </Card.Title>
+            <Card.Description className="mt-1 text-xs">16 Jul 2026, 15:30 EDT</Card.Description>
           </div>
-          <p className="absolute top-[calc(100%+8px)] text-[11px] font-medium whitespace-nowrap text-muted">Power generated</p>
-        </Card>
-      </Card.Content>
-      <Card.Footer className="mt-[30px] border-t border-separator bg-background-secondary px-[18px] py-2.5 text-[11px] text-muted">
-        Click to explore {datum.abbr} generation
-      </Card.Footer>
-    </Card>
+          <Chip color="success" size="sm" variant="soft" className="shrink-0">
+            <Activity size={13} />
+            <Chip.Label>Live estimate</Chip.Label>
+          </Chip>
+        </Card.Header>
+        <Card.Content className="mt-[17px] grid grid-cols-[1fr_.82fr_1.28fr] gap-2.5 px-[18px]">
+          <div className="relative flex h-32 min-w-0 flex-col items-center justify-center rounded-[15px] text-[#10191a] shadow-[inset_0_1px_0_rgba(255,255,255,.3)]" style={{ backgroundColor: intensityColor(datum.intensity) }}>
+            <strong className="text-3xl leading-none">{datum.intensity}</strong>
+            <span className="mt-1 text-[11px] font-bold">gCO₂e/kWh</span>
+            <p className="absolute top-[calc(100%+8px)] text-[11px] font-medium whitespace-nowrap text-muted">Carbon intensity</p>
+          </div>
+          <RingStat value={datum.renewable} color="#55c5a5" label="Renewable" />
+          <Card variant="secondary" className="relative h-32 min-w-0 gap-0 rounded-[15px] p-3.5 shadow-none">
+            <div className="flex items-baseline gap-1"><strong className="text-2xl">{datum.output}</strong><span className="text-[11px] text-muted">GW</span></div>
+            <div className="mt-2 flex h-[54px] items-end gap-[3px]" aria-hidden="true">
+              {[35, 48, 56, 49, 70, 77, 64, 86, 78, 91, 83, 88].map((height, index) => (
+                <i key={index} className="min-w-0.5 flex-1 rounded-t-sm bg-gradient-to-b from-[#65ceb0] to-[#459d87] opacity-90" style={{ height: `${height}%` }} />
+              ))}
+            </div>
+            <p className="absolute top-[calc(100%+8px)] text-[11px] font-medium whitespace-nowrap text-muted">Power generated</p>
+          </Card>
+        </Card.Content>
+        <Card.Footer className="mt-[30px] border-t border-separator bg-background-secondary px-[18px] py-2.5 text-[11px] text-muted">
+          Click to explore {datum.abbr} generation
+        </Card.Footer>
+      </Card>
+    </div>
   )
 }
 
@@ -428,9 +438,11 @@ function StatePanel({ datum, onClose }: { datum: StateDatum; onClose: () => void
 function App() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const [hoverPoint, setHoverPoint] = useState<HoverPoint>({ x: 540, y: 280 })
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1)
+  const hoverPointRef = useRef<HoverPoint>({ x: 540, y: 280 })
+  const hoverCardRef = useRef<HTMLDivElement>(null)
+  const hoverFrameRef = useRef<number | null>(null)
 
   const { stateFeatures, projection, path, dataById } = useMemo(() => {
     const collection = feature(
@@ -459,8 +471,26 @@ function App() {
     window.localStorage.setItem(THEME_STORAGE_KEY, theme)
   }, [isDark, theme])
 
+  useLayoutEffect(() => {
+    positionHoverCard(hoverCardRef.current, hoverPointRef.current)
+  }, [hoveredId])
+
+  useLayoutEffect(() => () => {
+    if (hoverFrameRef.current !== null) cancelAnimationFrame(hoverFrameRef.current)
+  }, [])
+
+  const rememberPointer = (event: React.MouseEvent<SVGPathElement>) => {
+    hoverPointRef.current = { x: event.clientX, y: event.clientY }
+  }
+
   const updatePointer = (event: React.MouseEvent<SVGPathElement>) => {
-    setHoverPoint({ x: event.clientX, y: event.clientY })
+    rememberPointer(event)
+    if (hoverFrameRef.current !== null) return
+
+    hoverFrameRef.current = requestAnimationFrame(() => {
+      hoverFrameRef.current = null
+      positionHoverCard(hoverCardRef.current, hoverPointRef.current)
+    })
   }
 
   return (
@@ -498,7 +528,10 @@ function App() {
                   className={`cursor-pointer outline-none [vector-effect:non-scaling-stroke] transition-[opacity,stroke,stroke-width] duration-150 ${highlightClass} ${activeClass}`}
                   style={isSelected ? { filter: 'url(#stateGlow)' } : undefined}
                   fill={primaryGeneration?.color ?? (isDark ? '#3b444b' : '#aab8ba')}
-                  onMouseEnter={() => setHoveredId(id)}
+                  onMouseEnter={(event) => {
+                    rememberPointer(event)
+                    setHoveredId(id)
+                  }}
                   onMouseMove={updatePointer}
                   onMouseLeave={() => setHoveredId(null)}
                   onClick={() => setSelectedId(id)}
@@ -628,7 +661,7 @@ function App() {
           </Card.Content>
         </Card>
 
-        {hovered && !selected && <HoverCard datum={hovered} point={hoverPoint} />}
+        {hovered && !selected && <HoverCard datum={hovered} tooltipRef={hoverCardRef} />}
         {selected && <StatePanel datum={selected} onClose={() => setSelectedId(null)} />}
       </div>
     </main>
