@@ -13,8 +13,8 @@
     "@heroui/react": "^3.2.2",
     "@heroui/styles": "^3.2.2",
     "@tailwindcss/vite": "^4.3.3",
-    "d3-geo": "^3.1.1",
     "lucide-react": "^1.24.0",
+    "mapbox-gl": "^3.26.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "tailwindcss": "^4.3.3",
@@ -22,7 +22,6 @@
     "us-atlas": "^3.0.1"
   },
   "devDependencies": {
-    "@types/d3-geo": "^3.1.0",
     "@types/geojson": "^7946.0.16",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import {
   Button,
@@ -8,24 +8,17 @@ import {
   Drawer,
   Kbd,
   Link,
-  ProgressCircle,
   ScrollShadow,
   Separator,
-  Slider,
   Surface,
   Tabs,
   Tooltip,
   useOverlayState,
 } from '@heroui/react'
 import {
-  Activity,
-  ArrowLeft,
-  BatteryCharging,
   ChevronDown,
-  Factory,
   Info,
   Layers3,
-  Leaf,
   LocateFixed,
   Minus,
   Moon,
@@ -33,42 +26,56 @@ import {
   Search,
   Settings2,
   Sun,
-  Wind,
   Zap,
 } from 'lucide-react'
-import { geoAlbersUsa, geoPath } from 'd3-geo'
+import mapboxgl from 'mapbox-gl'
+import type { ExpressionSpecification, GeoJSONSource } from 'mapbox-gl'
+import 'mapbox-gl/dist/mapbox-gl.css'
 import { feature } from 'topojson-client'
-import type { Feature, FeatureCollection, Geometry } from 'geojson'
+import type { FeatureCollection, Geometry, Point } from 'geojson'
 import statesAtlas from 'us-atlas/states-10m.json'
-
-type StateDatum = {
-  id: string
-  name: string
-  abbr: string
-  intensity: number
-  renewable: number
-  clean: number
-  output: number
-  change: number
-  mix: { name: GenerationSourceName; value: number; color: string }[]
-}
 
 type HoverPoint = { x: number; y: number }
 type Theme = 'light' | 'dark'
+type FuelType = 'Solar' | 'Wind' | 'Hydro' | 'Nuclear' | 'Natural gas' | 'Battery'
+
+type PlantDatum = {
+  id: string
+  name: string
+  operator: string
+  fuel: FuelType
+  coordinates: [number, number]
+  capacityMW: number
+  outputMW: number
+  utilization: number
+  emissions: number
+  commissioned: number
+  units: number
+  status: 'Online' | 'Reduced output' | 'Standby'
+}
 
 const THEME_STORAGE_KEY = 'powermap-theme'
-const CONTROL_BUTTON_CLASS = 'h-9 min-h-9 w-9 min-w-9 rounded-xl border border-border bg-surface/80 text-foreground shadow-sm backdrop-blur-lg hover:bg-surface-hover'
-const PANEL_CARD_CLASS = 'gap-0 rounded-[17px] bg-surface-secondary/70 p-4 shadow-none'
+const CONTROL_BUTTON_CLASS = 'h-9 min-h-9 w-9 min-w-9 rounded-[10px] border border-border bg-surface/80 text-foreground shadow-surface material hover:bg-surface-hover'
+const FLOATING_PANEL_CLASS = 'rounded-2xl border border-border bg-surface/80 shadow-surface material'
+const SECTION_LABEL_CLASS = 'text-[10px] leading-4 font-semibold tracking-[0.05em] uppercase text-muted'
+const TITLE_CLASS = 'overflow-hidden text-ellipsis whitespace-nowrap font-semibold'
+const VALUE_CLASS = 'text-[16px] leading-tight font-semibold tabular-nums'
 
 const GENERATION_SOURCES = [
-  { name: 'Solar', color: '#f7d650' },
-  { name: 'Wind', color: '#50c7aa' },
-  { name: 'Hydro', color: '#64a9ee' },
-  { name: 'Nuclear', color: '#a890f8' },
-  { name: 'Fossil', color: '#e28154' },
+  { name: 'Solar', color: '#d9be6c' },
+  { name: 'Wind', color: '#84b8a5' },
+  { name: 'Hydro', color: '#89aecd' },
+  { name: 'Nuclear', color: '#ab9fd1' },
+  { name: 'Fossil', color: '#c39a84' },
 ] as const
 
-type GenerationSourceName = (typeof GENERATION_SOURCES)[number]['name']
+const STATUS_DOT_CLASS: Record<PlantDatum['status'], string> = {
+  Online: 'bg-success',
+  'Reduced output': 'bg-warning',
+  Standby: 'bg-muted',
+}
+
+const METER_LEVELS = ['Low', 'Moderate', 'High'] as const
 
 function getInitialTheme(): Theme {
   const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
@@ -90,96 +97,233 @@ const STATE_ABBREVIATIONS: Record<string, string> = {
   Wyoming: 'WY',
 }
 
-const STATE_OVERRIDES: Record<string, Partial<StateDatum>> = {
-  California: { intensity: 148, renewable: 56, clean: 76, output: 33.2, change: -8 },
-  Texas: { intensity: 382, renewable: 35, clean: 48, output: 54.7, change: 3 },
-  Washington: { intensity: 92, renewable: 81, clean: 89, output: 12.8, change: -11 },
-  Wyoming: { intensity: 694, renewable: 18, clean: 21, output: 5.4, change: 7 },
-  'West Virginia': { intensity: 738, renewable: 7, clean: 9, output: 8.1, change: 4 },
-  Vermont: { intensity: 42, renewable: 99, clean: 100, output: 0.7, change: -2 },
-  Idaho: { intensity: 176, renewable: 72, clean: 81, output: 3.8, change: -9 },
-  Florida: { intensity: 497, renewable: 8, clean: 22, output: 28.5, change: 5 },
-  'New York': { intensity: 203, renewable: 29, clean: 63, output: 17.4, change: -4 },
-}
-
-const PLANTS = [
-  { name: 'Diablo Canyon', coordinates: [-120.86, 35.21], capacity: 2.2 },
-  { name: 'Grand Coulee', coordinates: [-118.98, 47.96], capacity: 6.8 },
-  { name: 'Palo Verde', coordinates: [-112.86, 33.39], capacity: 3.9 },
-  { name: 'Comanche Peak', coordinates: [-97.79, 32.3], capacity: 2.4 },
-  { name: 'South Texas Project', coordinates: [-96.05, 28.8], capacity: 2.7 },
-  { name: 'Wolf Creek', coordinates: [-95.69, 38.24], capacity: 1.2 },
-  { name: 'Byron', coordinates: [-89.06, 42.07], capacity: 2.3 },
-  { name: 'Vogtle', coordinates: [-81.76, 33.14], capacity: 4.5 },
-  { name: 'Oconee', coordinates: [-82.9, 34.79], capacity: 2.6 },
-  { name: 'Susquehanna', coordinates: [-76.15, 41.09], capacity: 2.5 },
-  { name: 'Seabrook', coordinates: [-70.85, 42.9], capacity: 1.25 },
-  { name: 'Bankhead', coordinates: [-87.36, 33.46], capacity: 0.5 },
+const PLANT_HUBS = [
+  { place: 'Pacific Northwest', coordinates: [-120.7, 46.5] },
+  { place: 'Northern California', coordinates: [-121.2, 38.4] },
+  { place: 'Southern California', coordinates: [-117.8, 34.2] },
+  { place: 'Desert Southwest', coordinates: [-112.0, 33.7] },
+  { place: 'Front Range', coordinates: [-104.8, 39.4] },
+  { place: 'North Texas', coordinates: [-97.1, 32.7] },
+  { place: 'Gulf Coast', coordinates: [-95.1, 29.7] },
+  { place: 'Upper Midwest', coordinates: [-93.2, 44.5] },
+  { place: 'Great Lakes', coordinates: [-86.7, 42.2] },
+  { place: 'Ohio Valley', coordinates: [-82.5, 39.6] },
+  { place: 'Southeast', coordinates: [-83.6, 33.8] },
+  { place: 'Mid-Atlantic', coordinates: [-77.6, 39.1] },
+  { place: 'Northeast', coordinates: [-72.6, 42.2] },
 ] as const
 
-const MAP_WIDTH = 1100
-const MAP_HEIGHT = 680
-const HOVER_CARD_WIDTH = 430
-const HOVER_CARD_EDGE_GAP = 16
-const HOVER_CARD_BOTTOM_GAP = 306
-
-function hashName(name: string) {
-  return [...name].reduce((sum, letter) => sum + letter.charCodeAt(0), 0)
+const PLANT_PREFIXES = ['Cedar', 'Clearwater', 'Granite', 'Juniper', 'Mesa', 'Northstar', 'Pioneer', 'Redwood', 'Silver', 'Summit', 'Valley', 'Willow']
+const PLANT_SUFFIXES: Record<FuelType, string> = {
+  Solar: 'Solar Farm',
+  Wind: 'Wind Project',
+  Hydro: 'Hydroelectric Station',
+  Nuclear: 'Nuclear Station',
+  'Natural gas': 'Energy Center',
+  Battery: 'Storage Facility',
+}
+const PLANT_FUELS: FuelType[] = ['Solar', 'Wind', 'Natural gas', 'Battery', 'Hydro', 'Nuclear']
+const PLANT_COLORS: Record<FuelType, string> = {
+  Solar: '#d9be6c',
+  Wind: '#84b8a5',
+  Hydro: '#89aecd',
+  Nuclear: '#ab9fd1',
+  'Natural gas': '#c39a84',
+  Battery: '#8bbcc6',
 }
 
-function buildGenerationMix(seed: number): StateDatum['mix'] {
-  const primaryIndex = seed % GENERATION_SOURCES.length
-  const primaryShare = 42 + (seed % 9)
-  const remaining = 100 - primaryShare
-  const secondaryShares = [
-    Math.floor(remaining * .34),
-    Math.floor(remaining * .27),
-    Math.floor(remaining * .22),
-  ]
-  secondaryShares.push(remaining - secondaryShares.reduce((sum, value) => sum + value, 0))
-
-  let secondaryIndex = 0
-  return GENERATION_SOURCES.map((source, index) => ({
-    ...source,
-    value: index === primaryIndex ? primaryShare : secondaryShares[secondaryIndex++],
-  }))
-}
-
-function dominantGeneration(datum: StateDatum) {
-  return datum.mix.reduce((dominant, source) => source.value > dominant.value ? source : dominant)
-}
-
-function buildStateDatum(id: string, name: string): StateDatum {
-  const seed = hashName(name)
-  const intensity = 90 + (seed * 17) % 610
-  const mix = buildGenerationMix(seed)
-  const renewable = mix.filter((source) => source.name === 'Solar' || source.name === 'Wind' || source.name === 'Hydro').reduce((sum, source) => sum + source.value, 0)
-  const nuclear = mix.find((source) => source.name === 'Nuclear')?.value ?? 0
-  const clean = renewable + nuclear
-
-  const base: StateDatum = {
-    id,
-    name,
-    abbr: STATE_ABBREVIATIONS[name] ?? name.slice(0, 2).toUpperCase(),
-    intensity,
-    renewable,
-    clean,
-    output: Number((2.4 + ((seed * 13) % 290) / 10).toFixed(1)),
-    change: (seed % 19) - 9,
-    mix,
+function seededRandom(seed: number) {
+  let value = seed >>> 0
+  return () => {
+    value = (value * 1664525 + 1013904223) >>> 0
+    return value / 4294967296
   }
-
-  return { ...base, ...STATE_OVERRIDES[name] }
 }
+
+function buildDemoPlants(): PlantDatum[] {
+  const random = seededRandom(8602026)
+  return PLANT_HUBS.flatMap((hub, hubIndex) => {
+    const count = 3 + (hubIndex % 3)
+    return Array.from({ length: count }, (_, index) => {
+      const fuel = PLANT_FUELS[(hubIndex * 2 + index) % PLANT_FUELS.length]
+      const capacityMW = Math.round(180 + random() * (fuel === 'Nuclear' ? 2100 : 1250))
+      const utilization = Math.round(32 + random() * 64)
+      const statusRoll = random()
+      const status: PlantDatum['status'] = statusRoll > .91 ? 'Standby' : statusRoll > .79 ? 'Reduced output' : 'Online'
+      return {
+        id: `plant-${hubIndex}-${index}`,
+        name: `${PLANT_PREFIXES[(hubIndex * 3 + index * 2) % PLANT_PREFIXES.length]} ${PLANT_SUFFIXES[fuel]}`,
+        operator: `${hub.place} Power Co.`,
+        fuel,
+        coordinates: [
+          hub.coordinates[0] + (random() - .5) * 4.6,
+          hub.coordinates[1] + (random() - .5) * 3.1,
+        ],
+        capacityMW,
+        outputMW: Math.round(capacityMW * utilization / 100),
+        utilization,
+        emissions: fuel === 'Natural gas' ? Math.round(320 + random() * 170) : fuel === 'Battery' ? 8 : Math.round(random() * 18),
+        commissioned: 1968 + Math.floor(random() * 56),
+        units: 1 + Math.floor(random() * 5),
+        status,
+      }
+    })
+  })
+}
+
+const PLANTS = buildDemoPlants()
+
+const HOVER_CARD_WIDTH = 360
+const HOVER_CARD_EDGE_GAP = 16
+const HOVER_CARD_BOTTOM_GAP = 360
 
 function intensityColor(value: number) {
-  if (value < 100) return '#50c98d'
-  if (value < 180) return '#82d18e'
-  if (value < 260) return '#bedc63'
-  if (value < 360) return '#efd458'
-  if (value < 480) return '#e7a84b'
-  if (value < 600) return '#cf7445'
-  return '#a84537'
+  if (value < 100) return '#6fae87'
+  if (value < 180) return '#8db47e'
+  if (value < 260) return '#b0b46f'
+  if (value < 360) return '#c7a862'
+  if (value < 480) return '#c58f58'
+  if (value < 600) return '#b9714f'
+  return '#a05547'
+}
+
+function utilizationLevel(value: number) {
+  return value > 66 ? 2 : value > 33 ? 1 : 0
+}
+
+function emissionsLevel(value: number) {
+  return value > 350 ? 2 : value > 100 ? 1 : 0
+}
+
+// ---------------------------------------------------------------------------
+// Mapbox setup
+// ---------------------------------------------------------------------------
+
+const MAPBOX_TOKEN: string | undefined = import.meta.env.VITE_MAPBOX_TOKEN
+
+const CONUS_BOUNDS: [[number, number], [number, number]] = [[-125.5, 24.2], [-66.4, 49.8]]
+const MAP_PADDING = { top: 96, right: 60, bottom: 150, left: 60 }
+const MAP_STYLES: Record<Theme, string> = {
+  light: 'mapbox://styles/mapbox/light-v11',
+  dark: 'mapbox://styles/mapbox/dark-v11',
+}
+
+const statesCollection = feature(
+  statesAtlas as never,
+  statesAtlas.objects.states as never,
+) as unknown as FeatureCollection<Geometry, { name: string }>
+
+const STATE_FEATURES = statesCollection.features
+  .filter((state) => Boolean(STATE_ABBREVIATIONS[state.properties.name]))
+  .map((state) => ({ ...state, id: Number(state.id) }))
+
+const STATES_GEOJSON: FeatureCollection<Geometry, { name: string }> = {
+  type: 'FeatureCollection',
+  features: STATE_FEATURES,
+}
+
+const PLANT_DATA = new Map<string, PlantDatum>(PLANTS.map((plant) => [plant.id, plant]))
+
+const PLANTS_GEOJSON: FeatureCollection<Point, { id: string; fuel: FuelType }> = {
+  type: 'FeatureCollection',
+  features: PLANTS.map((plant) => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: plant.coordinates },
+    properties: { id: plant.id, fuel: plant.fuel },
+  })),
+}
+
+const FUEL_COLOR_EXPRESSION = [
+  'match', ['get', 'fuel'],
+  ...Object.entries(PLANT_COLORS).flat(),
+  '#9ca3af',
+] as unknown as ExpressionSpecification
+
+function selectedPlantFilter(plantId: string | null): ExpressionSpecification {
+  return ['all', ['!', ['has', 'point_count']], ['==', ['get', 'id'], plantId ?? '']] as unknown as ExpressionSpecification
+}
+
+function addMapOverlays(map: mapboxgl.Map, isDark: boolean, selectedPlantId: string | null) {
+  if (map.getSource('states')) return
+  const firstSymbolLayer = map.getStyle()?.layers.find((layer) => layer.type === 'symbol')?.id
+
+  map.addSource('states', { type: 'geojson', data: STATES_GEOJSON })
+  map.addSource('plants', {
+    type: 'geojson',
+    data: PLANTS_GEOJSON,
+    cluster: true,
+    clusterRadius: 56,
+    clusterMaxZoom: 9,
+  })
+
+  map.addLayer({
+    id: 'states-fill',
+    type: 'fill',
+    source: 'states',
+    paint: {
+      'fill-color': isDark ? '#1c1c1e' : '#ffffff',
+      'fill-opacity': .55,
+    },
+  }, firstSymbolLayer)
+  map.addLayer({
+    id: 'states-border',
+    type: 'line',
+    source: 'states',
+    paint: {
+      'line-color': isDark ? 'rgba(255,255,255,.14)' : 'rgba(60,60,67,.16)',
+      'line-width': 1,
+    },
+  }, firstSymbolLayer)
+
+  map.addLayer({
+    id: 'clusters',
+    type: 'circle',
+    source: 'plants',
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-color': isDark ? '#f5f5f7' : '#1c1c1e',
+      'circle-radius': 14,
+      'circle-stroke-width': 1,
+      'circle-stroke-color': isDark ? 'rgba(0,0,0,.25)' : 'rgba(255,255,255,.25)',
+    },
+  })
+  map.addLayer({
+    id: 'cluster-count',
+    type: 'symbol',
+    source: 'plants',
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': ['get', 'point_count_abbreviated'] as unknown as ExpressionSpecification,
+      'text-size': 12,
+      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+    },
+    paint: { 'text-color': isDark ? '#1c1c1e' : '#f5f5f7' },
+  })
+  map.addLayer({
+    id: 'plants-selected',
+    type: 'circle',
+    source: 'plants',
+    filter: selectedPlantFilter(selectedPlantId),
+    paint: {
+      'circle-radius': 11,
+      'circle-opacity': 0,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': FUEL_COLOR_EXPRESSION,
+      'circle-stroke-opacity': .8,
+    },
+  })
+  map.addLayer({
+    id: 'plants-points',
+    type: 'circle',
+    source: 'plants',
+    filter: ['!', ['has', 'point_count']],
+    paint: {
+      'circle-color': FUEL_COLOR_EXPRESSION,
+      'circle-radius': 7,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': isDark ? '#000000' : '#ffffff',
+    },
+  })
 }
 
 function IconControl({ children, label, onPress }: { children: ReactNode; label: string; onPress?: () => void }) {
@@ -193,18 +337,62 @@ function IconControl({ children, label, onPress }: { children: ReactNode; label:
   )
 }
 
-function RingStat({ value, color, label }: { value: number; color: string; label: string }) {
+/** Apple's three-bar rating meter, as used on Maps place cards. */
+function LevelMeter({ level, label }: { level: number; label: string }) {
   return (
-    <Card variant="secondary" className="relative h-32 min-w-0 items-center justify-center gap-0 rounded-[15px] p-0 shadow-none">
-      <ProgressCircle value={value} aria-label={`${label}: ${value}%`} className="relative size-[82px]">
-        <ProgressCircle.Track className="size-[72px]!">
-          <ProgressCircle.TrackCircle className="stroke-default" />
-          <ProgressCircle.FillCircle style={{ stroke: color }} />
-        </ProgressCircle.Track>
-        <span className="absolute text-[19px] font-bold text-foreground">{value}%</span>
-      </ProgressCircle>
-      <p className="absolute top-[calc(100%+8px)] text-[11px] font-medium whitespace-nowrap text-muted">{label}</p>
-    </Card>
+    <span className="flex shrink-0 items-center gap-2" aria-label={`${label}: ${METER_LEVELS[level]}`}>
+      <span className="flex items-center gap-[3px]" aria-hidden="true">
+        {[0, 1, 2].map((segment) => (
+          <i key={segment} className={`h-[7px] w-[11px] rounded-[2px] ${segment <= level ? 'bg-foreground' : 'bg-default'}`} />
+        ))}
+      </span>
+      <span className="text-[10px] leading-4 font-semibold tracking-[0.04em] uppercase">{METER_LEVELS[level]}</span>
+    </span>
+  )
+}
+
+function StatusValue({ status }: { status: PlantDatum['status'] }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <i className={`size-[7px] shrink-0 rounded-full ${STATUS_DOT_CLASS[status]}`} />
+      <span className="overflow-hidden text-ellipsis whitespace-nowrap">{status}</span>
+    </span>
+  )
+}
+
+/** Grey label above a heavier value — the label/value pair used all over iOS. */
+function Metric({ label, value, unit }: { label: string; value: ReactNode; unit?: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="overflow-hidden text-[12px] leading-4 text-ellipsis whitespace-nowrap text-muted">{label}</p>
+      <p className={`mt-1 flex items-baseline gap-1 ${VALUE_CLASS}`}>
+        {value}
+        {unit && <span className="text-[11px] font-normal text-muted">{unit}</span>}
+      </p>
+    </div>
+  )
+}
+
+function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="flex min-h-[22px] items-center justify-between gap-3">
+      <h3 className={SECTION_LABEL_CLASS}>{children}</h3>
+      {action}
+    </div>
+  )
+}
+
+/** Inset grouped list: rows split by hairlines that stop short of the edges. */
+function DetailRows({ rows }: { rows: { label: string; value: string }[] }) {
+  return (
+    <div className="rounded-xl bg-surface-secondary px-3.5">
+      {rows.map(({ label, value }, index) => (
+        <div className={`flex items-center justify-between gap-4 py-2.5 text-[14px] leading-5 ${index > 0 ? 'border-t border-separator' : ''}`} key={label}>
+          <span className="shrink-0 text-muted">{label}</span>
+          <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-medium">{value}</span>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -220,41 +408,55 @@ function positionHoverCard(element: HTMLDivElement | null, point: HoverPoint) {
   element.style.transform = `translate3d(${Math.round(left)}px, ${Math.round(top)}px, 0)`
 }
 
-function HoverCard({ datum, tooltipRef }: { datum: StateDatum; tooltipRef: RefObject<HTMLDivElement | null> }) {
+function HoverCard({ datum, tooltipRef }: { datum: PlantDatum; tooltipRef: RefObject<HTMLDivElement | null> }) {
+  const plantColor = PLANT_COLORS[datum.fuel]
   return (
     <div ref={tooltipRef} className="pointer-events-none fixed top-0 left-0 z-30 will-change-transform" role="tooltip">
-      <Card className="w-[430px] gap-0 overflow-hidden rounded-[19px] bg-overlay/95 p-0 text-foreground shadow-overlay max-[470px]:w-[calc(100vw-20px)]">
-        <Card.Header className="flex-row justify-between gap-2.5 px-[18px] pt-[17px]">
-          <div>
-            <Card.Title className="flex items-center gap-2 text-lg leading-tight font-semibold">
-              <span className="text-[17px]">🇺🇸</span>{datum.name}
-            </Card.Title>
-            <Card.Description className="mt-1 text-xs">16 Jul 2026, 15:30 EDT</Card.Description>
-          </div>
-          <Chip color="success" size="sm" variant="soft" className="shrink-0">
-            <Activity size={13} />
-            <Chip.Label>Live estimate</Chip.Label>
-          </Chip>
+      <Card className="w-[360px] gap-0 overflow-hidden rounded-2xl border border-border bg-overlay/80 p-0 text-foreground shadow-overlay material max-[400px]:w-[calc(100vw-20px)]">
+        <Card.Header className="gap-0 px-4 pt-3.5">
+          <Card.Title className={`${TITLE_CLASS} text-[16px] leading-6`}>{datum.name}</Card.Title>
+          <Card.Description className="overflow-hidden text-[14px] leading-5 text-ellipsis whitespace-nowrap">{datum.fuel} · {datum.operator}</Card.Description>
         </Card.Header>
-        <Card.Content className="mt-[17px] grid grid-cols-[1fr_.82fr_1.28fr] gap-2.5 px-[18px]">
-          <div className="relative flex h-32 min-w-0 flex-col items-center justify-center rounded-[15px] text-[#10191a] shadow-[inset_0_1px_0_rgba(255,255,255,.3)]" style={{ backgroundColor: intensityColor(datum.intensity) }}>
-            <strong className="text-3xl leading-none">{datum.intensity}</strong>
-            <span className="mt-1 text-[11px] font-bold">gCO₂e/kWh</span>
-            <p className="absolute top-[calc(100%+8px)] text-[11px] font-medium whitespace-nowrap text-muted">Carbon intensity</p>
-          </div>
-          <RingStat value={datum.renewable} color="#55c5a5" label="Renewable" />
-          <Card variant="secondary" className="relative h-32 min-w-0 gap-0 rounded-[15px] p-3.5 shadow-none">
-            <div className="flex items-baseline gap-1"><strong className="text-2xl">{datum.output}</strong><span className="text-[11px] text-muted">GW</span></div>
-            <div className="mt-2 flex h-[54px] items-end gap-[3px]" aria-hidden="true">
-              {[35, 48, 56, 49, 70, 77, 64, 86, 78, 91, 83, 88].map((height, index) => (
-                <i key={index} className="min-w-0.5 flex-1 rounded-t-sm bg-gradient-to-b from-[#65ceb0] to-[#459d87] opacity-90" style={{ height: `${height}%` }} />
-              ))}
+
+        <Card.Content className="gap-0 px-4 pt-4 pb-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[14px] leading-5 font-semibold">Current output</p>
+              <p className="mt-0.5 text-[14px] leading-5 text-muted tabular-nums">
+                {datum.outputMW.toLocaleString()} MW · {datum.utilization}% of capacity
+              </p>
             </div>
-            <p className="absolute top-[calc(100%+8px)] text-[11px] font-medium whitespace-nowrap text-muted">Power generated</p>
-          </Card>
+            <LevelMeter level={utilizationLevel(datum.utilization)} label="Utilisation" />
+          </div>
+
+          <Separator className="my-3.5" />
+
+          <div className="grid grid-cols-3 gap-3">
+            <Metric label="Capacity" value={datum.capacityMW.toLocaleString()} unit="MW" />
+            <Metric
+              label="Carbon"
+              value={
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <i className="size-[7px] shrink-0 rounded-full" style={{ backgroundColor: intensityColor(datum.emissions) }} />
+                  {datum.emissions}
+                </span>
+              }
+              unit="g/kWh"
+            />
+            <Metric label="Status" value={<StatusValue status={datum.status} />} />
+          </div>
+
+          <p className={`mt-4 ${SECTION_LABEL_CLASS}`}>Output · last 12 hours</p>
+          <div className="mt-2 flex h-[52px] items-end gap-[3px]" aria-hidden="true">
+            {[35, 48, 56, 49, 70, 77, 64, 86, 78, 91, 83, 88].map((height, index) => (
+              <i key={index} className="min-w-0.5 flex-1 rounded-[2px] opacity-85" style={{ height: `${height}%`, backgroundColor: plantColor }} />
+            ))}
+          </div>
+          <div className="mt-1.5 flex justify-between text-[10px] leading-4 text-muted"><span>12am</span><span>Now</span></div>
         </Card.Content>
-        <Card.Footer className="mt-[30px] border-t border-separator bg-background-secondary px-[18px] py-2.5 text-[11px] text-muted">
-          Click to explore {datum.abbr} generation
+
+        <Card.Footer className="border-t border-separator px-4 py-2.5 text-[11px] leading-4 text-muted">
+          Commissioned {datum.commissioned} · Click for full details
         </Card.Footer>
       </Card>
     </div>
@@ -263,41 +465,24 @@ function HoverCard({ datum, tooltipRef }: { datum: StateDatum; tooltipRef: RefOb
 
 function TrendChart({ color }: { color: string }) {
   return (
-    <svg className="mt-2 h-[120px] w-full overflow-visible" viewBox="0 0 360 128" preserveAspectRatio="none" aria-label="24 hour carbon intensity trend">
+    <svg className="h-[120px] w-full overflow-visible" viewBox="0 0 360 128" preserveAspectRatio="none" aria-label="24 hour power output trend">
       <defs>
         <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor={color} stopOpacity=".3" />
+          <stop offset="0" stopColor={color} stopOpacity=".28" />
           <stop offset="1" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>
-      {[28, 62, 96].map((y) => <line key={y} x1="0" x2="360" y1={y} y2={y} className="stroke-separator [stroke-dasharray:3_4]" />)}
+      {[28, 62, 96].map((y) => <line key={y} x1="0" x2="360" y1={y} y2={y} className="stroke-separator" />)}
       <path d="M0 83 C24 78 30 63 54 68 S86 91 111 72 S146 42 170 54 S199 82 227 67 S263 37 286 45 S324 76 360 50 L360 128 L0 128 Z" fill="url(#trendFill)" />
-      <path d="M0 83 C24 78 30 63 54 68 S86 91 111 72 S146 42 170 54 S199 82 227 67 S263 37 286 45 S324 76 360 50" fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" />
-      <circle cx="360" cy="50" r="5" fill={color} className="stroke-overlay" strokeWidth="3" />
+      <path d="M0 83 C24 78 30 63 54 68 S86 91 111 72 S146 42 170 54 S199 82 227 67 S263 37 286 45 S324 76 360 50" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" />
+      <circle cx="360" cy="50" r="4" fill={color} className="stroke-overlay" strokeWidth="2" />
     </svg>
   )
 }
 
-function SectionHeading({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
-  return (
-    <Card.Header className="flex-row items-start justify-between gap-3">
-      <div>
-        <Card.Title className="text-[15px] leading-tight font-semibold">{title}</Card.Title>
-        <Card.Description className="mt-1 text-[11px] leading-tight">{description}</Card.Description>
-      </div>
-      {action}
-    </Card.Header>
-  )
-}
-
-function StatePanel({ datum, onClose }: { datum: StateDatum; onClose: () => void }) {
+function PlantPanel({ datum, onClose }: { datum: PlantDatum; onClose: () => void }) {
   const drawerState = useOverlayState({ defaultOpen: true, onOpenChange: (isOpen) => { if (!isOpen) onClose() } })
-  const carbonColor = intensityColor(datum.intensity)
-  const plants = [
-    { name: `${datum.name} Energy Center`, type: 'Natural gas', cap: '1.8 GW', icon: Factory, color: '#e28154' },
-    { name: `${datum.name} Wind Project`, type: 'Wind', cap: '940 MW', icon: Wind, color: '#50c7aa' },
-    { name: 'Sunrise Solar Farm', type: 'Solar', cap: '610 MW', icon: Sun, color: '#f7d650' },
-  ]
+  const plantColor = PLANT_COLORS[datum.fuel]
 
   return (
     <Drawer state={drawerState}>
@@ -307,123 +492,98 @@ function StatePanel({ datum, onClose }: { datum: StateDatum; onClose: () => void
           className="top-[84px]! right-auto! bottom-4! left-[18px]! h-auto! w-auto! max-[800px]:top-[76px]! max-[800px]:right-2.5! max-[800px]:bottom-2.5! max-[800px]:left-2.5!"
         >
           <Drawer.Dialog
-            aria-label={`${datum.name} electricity details`}
-            className="h-full! w-[418px]! max-w-[calc(100vw-36px)]! overflow-hidden rounded-[23px]! bg-overlay/95 p-0! shadow-overlay max-[800px]:w-full! max-[800px]:max-w-none!"
+            aria-label={`${datum.name} power plant details`}
+            className="h-full! w-[400px]! max-w-[calc(100vw-36px)]! overflow-hidden rounded-2xl! border border-border bg-overlay/85 p-0! shadow-overlay material max-[800px]:w-full! max-[800px]:max-w-none!"
           >
-            <Drawer.Header className="mb-0 flex-row items-center gap-2.5 px-[17px] pt-[17px]">
-              <Button isIconOnly size="sm" variant="ghost" className="h-[34px] min-h-[34px] w-[34px] min-w-[34px] rounded-[9px]" onPress={drawerState.close} aria-label="Close state details">
-                <ArrowLeft size={20} />
-              </Button>
-              <div className="flex min-w-0 flex-1 items-center gap-[11px]">
-                <span className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-[#74cfb4] text-xs font-extrabold text-[#101918]">{datum.abbr}</span>
-                <div className="min-w-0">
-                  <Drawer.Heading className="overflow-hidden text-ellipsis whitespace-nowrap text-[19px] leading-tight font-semibold">{datum.name}</Drawer.Heading>
-                  <p className="mt-0.5 text-[11px] text-muted">United States · Live grid</p>
-                </div>
+            <Drawer.Header className="mb-0 flex-row items-start justify-between gap-3 border-b border-separator px-4 py-3.5">
+              <div className="min-w-0">
+                <Drawer.Heading className={`${TITLE_CLASS} text-[18px] leading-6`}>{datum.name}</Drawer.Heading>
+                <p className="overflow-hidden text-[14px] leading-5 text-ellipsis whitespace-nowrap text-muted">{datum.fuel} · {datum.operator}</p>
               </div>
-              <Drawer.CloseTrigger className="static h-[34px] min-h-[34px] w-[34px] min-w-[34px] rounded-[9px]" aria-label="Close" />
+              <Drawer.CloseTrigger
+                className="static size-7 min-h-7 w-7 min-w-7 shrink-0 rounded-full border-0 bg-default text-muted hover:bg-default-hover"
+                aria-label="Close plant details"
+              />
             </Drawer.Header>
 
             <Drawer.Body className="m-0 overflow-hidden p-0">
-              <ScrollShadow className="h-full overflow-y-auto px-[17px] pb-[17px]" hideScrollBar size={32}>
-                <Tabs defaultSelectedKey="electricity" className="mt-[15px]">
-                  <Tabs.List aria-label="State data view" className="grid h-[42px] grid-cols-2 rounded-[12px] border border-border bg-background-secondary p-1">
-                    <Tabs.Tab id="electricity" className="justify-center rounded-[8px] text-xs font-semibold">Electricity</Tabs.Tab>
-                    <Tabs.Tab id="emissions" className="justify-center rounded-[8px] text-xs font-semibold">Emissions</Tabs.Tab>
+              <ScrollShadow className="h-full overflow-y-auto px-4 pb-4" hideScrollBar size={32}>
+                <Tabs defaultSelectedKey="overview" className="mt-4">
+                  <Tabs.List aria-label="Power plant data view" className="grid grid-cols-2">
+                    <Tabs.Tab id="overview" className="justify-center">Overview</Tabs.Tab>
+                    <Tabs.Tab id="performance" className="justify-center">Performance</Tabs.Tab>
                   </Tabs.List>
 
-                  <Tabs.Panel id="electricity" className="mt-4 flex flex-col gap-3 outline-none">
-                    <Card className={PANEL_CARD_CLASS}>
-                      <SectionHeading
-                        title="Current electricity mix"
-                        description="Updated 4 minutes ago"
-                        action={<Chip color="success" size="sm" variant="soft"><Chip.Label>Live</Chip.Label></Chip>}
+                  <Tabs.Panel id="overview" className="mt-5 flex flex-col gap-5 p-0 outline-none">
+                    <section className="flex flex-col gap-3">
+                      <SectionLabel action={<span className="text-[12px] leading-4"><StatusValue status={datum.status} /></span>}>
+                        Current generation
+                      </SectionLabel>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Metric label="Output" value={datum.outputMW.toLocaleString()} unit="MW" />
+                        <Metric label="Capacity" value={datum.capacityMW.toLocaleString()} unit="MW" />
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between text-[12px] leading-4">
+                          <span className="text-muted">Current load</span>
+                          <span className="font-semibold tabular-nums">{datum.utilization}%</span>
+                        </div>
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-default" aria-label={`${datum.utilization}% of plant capacity in use`}>
+                          <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${datum.utilization}%`, backgroundColor: plantColor }} />
+                        </div>
+                      </div>
+                    </section>
+
+                    <Separator />
+
+                    <section className="flex flex-col gap-2.5">
+                      <SectionLabel>Plant details</SectionLabel>
+                      <DetailRows
+                        rows={[
+                          { label: 'Primary fuel', value: datum.fuel },
+                          { label: 'Operator', value: datum.operator },
+                          { label: 'Generating units', value: String(datum.units) },
+                          { label: 'Commissioned', value: String(datum.commissioned) },
+                        ]}
                       />
-                      <Card.Content className="gap-0">
-                        <div className="mt-4 flex items-center gap-[15px]">
-                          <div className="grid h-24 w-[108px] shrink-0 grid-cols-[auto_auto] content-center justify-center gap-x-1 rounded-[15px] text-[#101817] shadow-[inset_0_1px_0_rgba(255,255,255,.32)]" style={{ backgroundColor: carbonColor }}>
-                            <Zap size={17} className="self-center" />
-                            <strong className="text-3xl leading-none">{datum.intensity}</strong>
-                            <span className="col-span-2 mt-1 text-center text-[11px] font-bold">gCO₂e/kWh</span>
-                          </div>
-                          <div className="flex flex-col">
-                            <p className="mb-[7px] text-xs text-muted">Carbon intensity</p>
-                            <strong className="text-xl text-[#249777] dark:text-[#55c5a5]">{datum.change <= 0 ? '↓' : '↑'} {Math.abs(datum.change)}%</strong>
-                            <span className="mt-1 text-[10px] text-muted">from yesterday at this time</span>
-                          </div>
-                        </div>
-                        <div className="my-[13px] mt-[18px] flex h-[9px] gap-0.5 overflow-hidden rounded-full" aria-label="Generation source mix">
-                          {datum.mix.map((source) => <i key={source.name} className="block min-w-1" style={{ width: `${source.value}%`, backgroundColor: source.color }} />)}
-                        </div>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                          {datum.mix.map((source) => (
-                            <div className="grid grid-cols-[7px_1fr_auto] items-center gap-[7px] text-[10px]" key={source.name}>
-                              <i className="size-[7px] rounded-[3px]" style={{ backgroundColor: source.color }} />
-                              <span className="text-muted">{source.name}</span>
-                              <strong className="font-semibold text-foreground">{source.value}%</strong>
-                            </div>
-                          ))}
-                        </div>
-                      </Card.Content>
-                    </Card>
-
-                    <div className="grid grid-cols-3 gap-[7px]">
-                      {[
-                        { icon: Leaf, value: `${datum.renewable}%`, label: 'Renewable' },
-                        { icon: BatteryCharging, value: `${datum.clean}%`, label: 'Carbon-free' },
-                        { icon: Activity, value: `${datum.output} GW`, label: 'Generated' },
-                      ].map(({ icon: Icon, value, label }) => (
-                        <Card variant="secondary" className="min-w-0 flex-row items-center gap-[7px] rounded-[11px] p-2.5 shadow-none" key={label}>
-                          <Icon size={18} className="shrink-0 text-[#249777] dark:text-[#55c5a5]" />
-                          <div className="min-w-0">
-                            <strong className="block text-xs whitespace-nowrap">{value}</strong>
-                            <span className="mt-0.5 block overflow-hidden text-[9px] text-ellipsis text-muted">{label}</span>
-                          </div>
-                        </Card>
-                      ))}
-                    </div>
-
-                    <Card className={PANEL_CARD_CLASS}>
-                      <SectionHeading title="Largest power plants" description="By operating capacity" action={<span className="text-[10px] text-muted">12 total</span>} />
-                      <Card.Content className="mt-[11px] gap-1">
-                        {plants.map(({ name, type, cap, icon: Icon, color }) => (
-                          <Button fullWidth variant="ghost" className="grid h-auto min-h-0 grid-cols-[34px_1fr_auto] items-center gap-2 rounded-xl p-2 text-left" key={name}>
-                            <span className="grid size-[34px] place-items-center rounded-[9px] bg-default" style={{ color }}><Icon size={18} /></span>
-                            <span className="min-w-0">
-                              <strong className="block overflow-hidden text-[11px] font-semibold text-ellipsis whitespace-nowrap">{name}</strong>
-                              <small className="mt-0.5 block text-[9px] text-muted">{type}</small>
-                            </span>
-                            <span className="text-[10px] text-muted">{cap}</span>
-                          </Button>
-                        ))}
-                      </Card.Content>
-                    </Card>
+                    </section>
                   </Tabs.Panel>
 
-                  <Tabs.Panel id="emissions" className="mt-4 flex flex-col gap-3 outline-none">
-                    <Card className={PANEL_CARD_CLASS}>
-                      <SectionHeading
-                        title="Carbon intensity"
-                        description="Past 24 hours"
-                        action={<Button size="sm" variant="secondary" className="h-7 min-h-7 rounded-lg px-2 text-[10px]"><Settings2 size={14} />Hourly</Button>}
+                  <Tabs.Panel id="performance" className="mt-5 flex flex-col gap-5 p-0 outline-none">
+                    <section className="flex flex-col gap-2.5">
+                      <SectionLabel
+                        action={
+                          <Button size="sm" variant="secondary" className="h-6 min-h-6 gap-1 rounded-full border border-border px-2.5 text-[10px] font-medium">
+                            Hourly<ChevronDown size={12} />
+                          </Button>
+                        }
+                      >
+                        Power output · past 24 hours
+                      </SectionLabel>
+                      <div>
+                        <TrendChart color={plantColor} />
+                        <div className="mt-1 flex justify-between text-[10px] leading-4 text-muted"><span>12am</span><span>6am</span><span>12pm</span><span>Now</span></div>
+                      </div>
+                    </section>
+
+                    <Separator />
+
+                    <section className="flex flex-col gap-3">
+                      <SectionLabel>Carbon intensity</SectionLabel>
+                      <div className="flex items-end justify-between gap-4">
+                        <p className="flex items-baseline gap-1.5">
+                          <strong className="text-[32px] leading-none tabular-nums">{datum.emissions}</strong>
+                          <span className="text-[12px] text-muted">gCO₂e / kWh</span>
+                        </p>
+                        <span className="pb-1"><LevelMeter level={emissionsLevel(datum.emissions)} label="Carbon intensity" /></span>
+                      </div>
+                      <DetailRows
+                        rows={[
+                          { label: 'Fuel source', value: datum.fuel },
+                          { label: 'Daily output', value: `${(datum.outputMW * 24).toLocaleString()} MWh` },
+                        ]}
                       />
-                      <Card.Content className="gap-0">
-                        <TrendChart color={carbonColor} />
-                        <div className="-mt-1 flex justify-between text-[10px] text-muted"><span>12am</span><span>6am</span><span>12pm</span><span>Now</span></div>
-                      </Card.Content>
-                    </Card>
-                    <Card className={PANEL_CARD_CLASS}>
-                      <SectionHeading title="Daily movement" description="Compared with this time yesterday" />
-                      <Card.Content className="mt-4 flex-row items-end justify-between gap-4">
-                        <div>
-                          <strong className="text-3xl" style={{ color: carbonColor }}>{datum.intensity}</strong>
-                          <p className="mt-1 text-[11px] text-muted">gCO₂e per kWh</p>
-                        </div>
-                        <Chip color={datum.change <= 0 ? 'success' : 'warning'} variant="soft">
-                          <Chip.Label>{datum.change <= 0 ? '↓' : '↑'} {Math.abs(datum.change)}%</Chip.Label>
-                        </Chip>
-                      </Card.Content>
-                    </Card>
+                    </section>
                   </Tabs.Panel>
                 </Tabs>
               </ScrollShadow>
@@ -437,31 +597,19 @@ function StatePanel({ datum, onClose }: { datum: StateDatum; onClose: () => void
 
 function App() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
-  const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [zoom, setZoom] = useState(1)
+  const [hoveredPlantId, setHoveredPlantId] = useState<string | null>(null)
+  const [selectedPlantId, setSelectedPlantId] = useState<string | null>(null)
   const hoverPointRef = useRef<HoverPoint>({ x: 540, y: 280 })
   const hoverCardRef = useRef<HTMLDivElement>(null)
   const hoverFrameRef = useRef<number | null>(null)
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<mapboxgl.Map | null>(null)
+  const selectedPlantIdRef = useRef<string | null>(null)
+  const themeRef = useRef(theme)
+  const appliedThemeRef = useRef(theme)
 
-  const { stateFeatures, projection, path, dataById } = useMemo(() => {
-    const collection = feature(
-      statesAtlas as never,
-      statesAtlas.objects.states as never,
-    ) as unknown as FeatureCollection<Geometry, { name: string }>
-    const projection = geoAlbersUsa().scale(1420).translate([MAP_WIDTH / 2, MAP_HEIGHT / 2 + 4])
-    const path = geoPath(projection)
-    const stateFeatures = collection.features.filter((state) => Boolean(STATE_ABBREVIATIONS[state.properties.name]))
-    const dataById = new Map<string, StateDatum>()
-    stateFeatures.forEach((state) => {
-      const id = String(state.id).padStart(2, '0')
-      dataById.set(id, buildStateDatum(id, state.properties.name))
-    })
-    return { stateFeatures, projection, path, dataById }
-  }, [])
-
-  const hovered = hoveredId ? dataById.get(hoveredId) : undefined
-  const selected = selectedId ? dataById.get(selectedId) : undefined
+  const hoveredPlant = hoveredPlantId ? PLANT_DATA.get(hoveredPlantId) : undefined
+  const selectedPlant = selectedPlantId ? PLANT_DATA.get(selectedPlantId) : undefined
   const isDark = theme === 'dark'
 
   useLayoutEffect(() => {
@@ -473,118 +621,138 @@ function App() {
 
   useLayoutEffect(() => {
     positionHoverCard(hoverCardRef.current, hoverPointRef.current)
-  }, [hoveredId])
+  }, [hoveredPlantId])
 
-  useLayoutEffect(() => () => {
-    if (hoverFrameRef.current !== null) cancelAnimationFrame(hoverFrameRef.current)
+  useEffect(() => {
+    const container = mapContainerRef.current
+    if (!MAPBOX_TOKEN || !container) return
+
+    mapboxgl.accessToken = MAPBOX_TOKEN
+    const map = new mapboxgl.Map({
+      container,
+      style: MAP_STYLES[themeRef.current],
+      bounds: CONUS_BOUNDS,
+      fitBoundsOptions: { padding: MAP_PADDING },
+      minZoom: 3,
+      maxZoom: 11,
+      attributionControl: false,
+    })
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right')
+    mapRef.current = map
+
+    map.on('style.load', () => {
+      addMapOverlays(map, themeRef.current === 'dark', selectedPlantIdRef.current)
+    })
+
+    const clearHover = () => setHoveredPlantId(null)
+
+    map.on('mousemove', 'plants-points', (event) => {
+      const plantId = event.features?.[0]?.properties?.id as string | undefined
+      if (!plantId) return
+      setHoveredPlantId(plantId)
+      hoverPointRef.current = { x: event.originalEvent.clientX, y: event.originalEvent.clientY }
+      if (hoverFrameRef.current !== null) return
+      hoverFrameRef.current = requestAnimationFrame(() => {
+        hoverFrameRef.current = null
+        positionHoverCard(hoverCardRef.current, hoverPointRef.current)
+      })
+    })
+    map.on('mouseleave', 'plants-points', clearHover)
+    map.on('dragstart', clearHover)
+
+    map.on('click', 'clusters', (event) => {
+      const clusterFeature = event.features?.[0]
+      const clusterId = clusterFeature?.properties?.cluster_id as number | undefined
+      if (!clusterFeature || clusterId === undefined) return
+      const source = map.getSource('plants') as GeoJSONSource
+      source.getClusterExpansionZoom(clusterId, (error, zoom) => {
+        if (error || zoom == null) return
+        map.easeTo({ center: (clusterFeature.geometry as Point).coordinates as [number, number], zoom: zoom + .1 })
+      })
+    })
+    map.on('click', 'plants-points', (event) => {
+      const plantId = event.features?.[0]?.properties?.id as string | undefined
+      if (!plantId) return
+      clearHover()
+      setSelectedPlantId(plantId)
+    })
+    for (const layerId of ['clusters', 'plants-points']) {
+      map.on('mouseenter', layerId, () => { map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', layerId, () => { map.getCanvas().style.cursor = '' })
+    }
+
+    return () => {
+      if (hoverFrameRef.current !== null) {
+        cancelAnimationFrame(hoverFrameRef.current)
+        hoverFrameRef.current = null
+      }
+      map.remove()
+      mapRef.current = null
+    }
   }, [])
 
-  const rememberPointer = (event: React.MouseEvent<SVGPathElement>) => {
-    hoverPointRef.current = { x: event.clientX, y: event.clientY }
-  }
+  useEffect(() => {
+    themeRef.current = theme
+    const map = mapRef.current
+    if (!map || appliedThemeRef.current === theme) return
+    appliedThemeRef.current = theme
+    setHoveredPlantId(null)
+    map.setStyle(MAP_STYLES[theme])
+  }, [theme])
 
-  const updatePointer = (event: React.MouseEvent<SVGPathElement>) => {
-    rememberPointer(event)
-    if (hoverFrameRef.current !== null) return
-
-    hoverFrameRef.current = requestAnimationFrame(() => {
-      hoverFrameRef.current = null
-      positionHoverCard(hoverCardRef.current, hoverPointRef.current)
-    })
-  }
+  useEffect(() => {
+    selectedPlantIdRef.current = selectedPlantId
+    const map = mapRef.current
+    if (!map?.getLayer('plants-selected')) return
+    map.setFilter('plants-selected', selectedPlantFilter(selectedPlantId))
+  }, [selectedPlantId])
 
   return (
-    <main className="fixed inset-0 min-w-80 overflow-hidden bg-background font-sans text-foreground antialiased selection:bg-success/30">
-      <div className={`relative isolate size-full overflow-hidden ${isDark ? 'bg-[radial-gradient(circle_at_54%_42%,#1b2930_0,#10191e_42%,#090f13_100%)]' : 'bg-[radial-gradient(circle_at_54%_42%,#fff_0,#edf3f3_48%,#dfe9ea_100%)]'}`}>
-        <div className={`pointer-events-none absolute inset-0 ${isDark ? 'bg-[radial-gradient(ellipse_at_center,rgba(49,75,82,.18),transparent_62%)]' : 'bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,.62),transparent_66%)]'}`} aria-hidden="true" />
-        <svg className="absolute top-1/2 left-1/2 h-auto w-[min(112vw,1540px)] -translate-x-1/2 -translate-y-[49%] overflow-visible max-[800px]:top-[48%] max-[800px]:w-[170vw]" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} aria-label="Dominant electricity generation source by state in the United States">
-          <defs>
-            <filter id="stateGlow" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor={isDark ? '#ffffff' : '#132a2e'} floodOpacity=".38" />
-            </filter>
-            <pattern id="mapGrid" width="34" height="34" patternUnits="userSpaceOnUse">
-              <path d="M 34 0 L 0 0 0 34" fill="none" stroke={isDark ? 'rgba(255,255,255,.03)' : 'rgba(27,51,55,.055)'} strokeWidth="1" />
-            </pattern>
-          </defs>
-          <rect width={MAP_WIDTH} height={MAP_HEIGHT} fill="url(#mapGrid)" />
-          <g className="transition-transform duration-300 ease-out motion-reduce:transition-none" style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}>
-            {stateFeatures.map((state) => {
-              const id = String(state.id).padStart(2, '0')
-              const datum = dataById.get(id)
-              const primaryGeneration = datum ? dominantGeneration(datum) : undefined
-              const d = path(state as Feature<Geometry>) ?? ''
-              const isHovered = hoveredId === id
-              const isSelected = selectedId === id
-              const highlightClass = isDark
-                ? 'hover:stroke-white focus-visible:stroke-white'
-                : 'hover:stroke-[#132a2e] focus-visible:stroke-[#132a2e]'
-              const activeClass = isHovered || isSelected
-                ? `${isDark ? 'stroke-white' : 'stroke-[#132a2e]'} ${isSelected ? 'stroke-[3px]' : 'stroke-[2.2px]'}`
-                : isDark ? 'stroke-[rgba(13,24,27,.5)] stroke-[1.2px]' : 'stroke-[rgba(255,255,255,.72)] stroke-[1.2px]'
-              return (
-                <path
-                  key={id}
-                  d={d}
-                  className={`cursor-pointer outline-none [vector-effect:non-scaling-stroke] transition-[opacity,stroke,stroke-width] duration-150 ${highlightClass} ${activeClass}`}
-                  style={isSelected ? { filter: 'url(#stateGlow)' } : undefined}
-                  fill={primaryGeneration?.color ?? (isDark ? '#3b444b' : '#aab8ba')}
-                  onMouseEnter={(event) => {
-                    rememberPointer(event)
-                    setHoveredId(id)
-                  }}
-                  onMouseMove={updatePointer}
-                  onMouseLeave={() => setHoveredId(null)}
-                  onClick={() => setSelectedId(id)}
-                  onFocus={() => setHoveredId(id)}
-                  onBlur={() => setHoveredId(null)}
-                  tabIndex={0}
-                  role="button"
-                  aria-label={`${datum?.name}: ${primaryGeneration?.name} is the largest generation source at ${primaryGeneration?.value}%`}
-                />
-              )
-            })}
-            {stateFeatures.map((state) => {
-              const id = String(state.id).padStart(2, '0')
-              const datum = dataById.get(id)
-              const bounds = path.bounds(state as Feature<Geometry>)
-              const width = bounds[1][0] - bounds[0][0]
-              if (!datum || width < 19 || datum.abbr === 'AK' || datum.abbr === 'HI') return null
-              const [x, y] = path.centroid(state as Feature<Geometry>)
-              return <text key={`label-${id}`} x={x} y={y} className="pointer-events-none text-[11px] font-bold tracking-tight" fill={isDark ? 'rgba(11,20,22,.58)' : 'rgba(11,30,31,.68)'} textAnchor="middle" dominantBaseline="central">{datum.abbr}</text>
-            })}
-            {PLANTS.map((plant) => {
-              const point = projection(plant.coordinates as [number, number])
-              if (!point) return null
-              return (
-                <g className="pointer-events-none" key={plant.name} transform={`translate(${point[0]}, ${point[1]})`}>
-                  <circle r={5 + plant.capacity / 2} fill={isDark ? 'rgba(255,255,255,.1)' : 'rgba(17,42,45,.1)'} stroke={isDark ? 'rgba(255,255,255,.42)' : 'rgba(17,42,45,.42)'} strokeWidth=".6" />
-                  <circle r="2.8" fill={isDark ? '#fff' : '#173538'} stroke={isDark ? 'rgba(16,25,28,.75)' : 'rgba(255,255,255,.9)'} strokeWidth="1.2" />
-                  <title>{plant.name} · {plant.capacity} GW</title>
-                </g>
-              )
-            })}
-          </g>
-        </svg>
+    <main className="fixed inset-0 min-w-80 overflow-clip bg-background font-sans text-foreground antialiased selection:bg-accent/25">
+      <div className="relative isolate size-full overflow-clip bg-background">
+        {/* size-full is load-bearing: mapbox's own CSS overrides `absolute`, collapsing an inset-sized box */}
+        <div
+          ref={mapContainerRef}
+          className="absolute inset-0 size-full"
+          role="application"
+          aria-label="United States electricity map with clustered power plant markers"
+        />
+        {!MAPBOX_TOKEN && (
+          <div className="absolute inset-0 z-10 grid place-items-center p-4">
+            <Card className={`w-[420px] max-w-full gap-0 p-6 ${FLOATING_PANEL_CLASS}`}>
+              <Card.Header className="p-0">
+                <Card.Title className="text-[16px] leading-6 font-semibold">Connect Mapbox</Card.Title>
+                <Card.Description className="text-[14px] leading-5">A Mapbox access token is needed to render the map.</Card.Description>
+              </Card.Header>
+              <Card.Content className="mt-4 gap-3 p-0 text-[12px] text-muted">
+                <p>1. Create a token at <Link href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noreferrer" className="text-accent">account.mapbox.com</Link></p>
+                <p>2. Add it to <code className="rounded-md bg-default px-1.5 py-0.5 text-xs text-foreground">client/.env.local</code>:</p>
+                <code className="block rounded-xl bg-default px-3 py-2.5 text-xs text-foreground">VITE_MAPBOX_TOKEN=pk.your-token-here</code>
+                <p>3. Restart the dev server.</p>
+              </Card.Content>
+            </Card>
+          </div>
+        )}
 
-        <Surface className="absolute top-4 right-[18px] left-[18px] z-20 flex h-14 items-center gap-3 rounded-[16px] bg-surface/85 py-2 pr-2.5 pl-3.5 shadow-surface backdrop-blur-2xl max-[800px]:top-2.5 max-[800px]:right-2.5 max-[800px]:left-2.5">
-          <Link href="#" className="gap-2 text-[17px] font-bold tracking-tight whitespace-nowrap hover:no-underline" aria-label="PowerMap home">
-            <span className="grid size-[30px] place-items-center rounded-[8px] bg-[#55c5a5] text-[#0e1917] shadow-[inset_0_0_0_1px_rgba(255,255,255,.24)]"><Zap size={17} fill="currentColor" /></span>
+        <Surface className={`absolute top-4 right-[18px] left-[18px] z-20 flex h-14 items-center gap-3 py-2 pr-2.5 pl-3.5 ${FLOATING_PANEL_CLASS} max-[800px]:top-2.5 max-[800px]:right-2.5 max-[800px]:left-2.5`}>
+          <Link href="#" className="gap-2 text-[15px] font-semibold whitespace-nowrap hover:no-underline" aria-label="PowerMap home">
+            <span className="grid size-[30px] place-items-center rounded-lg bg-foreground text-background"><Zap size={16} fill="currentColor" /></span>
             <span>PowerMap</span>
           </Link>
           <Separator orientation="vertical" className="h-6 max-[800px]:hidden" />
-          <Chip color="success" size="sm" variant="soft" className="max-[800px]:hidden">
-            <span className="size-1.5 rounded-full bg-success shadow-[0_0_0_4px_color-mix(in_oklab,var(--success)_18%,transparent)]" />
+          <Chip color="success" size="sm" variant="soft" className="rounded-full max-[800px]:hidden">
+            <span className="size-1.5 rounded-full bg-success" />
             <Chip.Label>Live</Chip.Label>
           </Chip>
-          <Button variant="ghost" className="ml-2 h-9 w-[min(310px,28vw)] justify-start gap-2 rounded-xl border border-border bg-background-secondary px-2.5 text-muted max-[800px]:hidden" aria-label="Find a state or plant">
-            <Search size={16} />
-            <span className="flex-1 text-left">Find a state or plant</span>
-            <Kbd variant="light" className="px-1.5 py-0.5 text-[11px]">⌘ K</Kbd>
+          <Button variant="ghost" className="ml-2 h-9 w-[min(310px,28vw)] justify-start gap-2 rounded-[10px] bg-default px-2.5 text-[12px] text-muted max-[800px]:hidden" aria-label="Find a power plant">
+            <Search size={15} />
+            <span className="flex-1 text-left">Find a power plant</span>
+            <Kbd variant="light" className="px-1.5 py-0.5 text-[10px]">⌘ K</Kbd>
           </Button>
           <div className="ml-auto flex items-center gap-2">
-            <Button variant="secondary" className="h-9 min-h-9 gap-2 rounded-xl border border-border px-3 text-[13px] font-semibold max-[800px]:w-[38px] max-[800px]:min-w-[38px] max-[800px]:px-0" aria-label="Select map metric">
+            <Button variant="secondary" className="h-9 min-h-9 gap-2 rounded-full border border-border px-3.5 text-[12px] font-medium max-[800px]:w-[38px] max-[800px]:min-w-[38px] max-[800px]:px-0" aria-label="Select map metric">
               <span className="flex items-center gap-0.5" aria-hidden="true">
-                {GENERATION_SOURCES.slice(0, 3).map((source) => <i key={source.name} className="size-1.5 rounded-[2px]" style={{ backgroundColor: source.color }} />)}
+                {GENERATION_SOURCES.slice(0, 3).map((source) => <i key={source.name} className="size-1.5 rounded-full" style={{ backgroundColor: source.color }} />)}
               </span>
               <span className="max-[800px]:hidden">Primary generation</span>
               <ChevronDown size={14} className="max-[800px]:hidden" />
@@ -609,60 +777,41 @@ function App() {
 
         <div className="absolute top-[86px] right-[18px] z-10 flex flex-col gap-2 max-[800px]:right-2.5">
           <IconControl label="Map layers"><Layers3 size={18} /></IconControl>
-          <ButtonGroup orientation="vertical" size="sm" variant="secondary" className="overflow-hidden rounded-xl border border-border bg-surface/85 shadow-surface backdrop-blur-lg">
-            <Button isIconOnly className="h-9 min-h-9 w-9 min-w-9 rounded-none" aria-label="Zoom in" onPress={() => setZoom((value) => Math.min(1.2, value + .05))}><Plus size={17} /></Button>
-            <Button isIconOnly className="h-9 min-h-9 w-9 min-w-9 rounded-none" aria-label="Zoom out" onPress={() => setZoom((value) => Math.max(.92, value - .05))}><ButtonGroup.Separator /><Minus size={17} /></Button>
+          <ButtonGroup orientation="vertical" size="sm" variant="secondary" className="overflow-hidden rounded-[10px] border border-border bg-surface/80 shadow-surface material">
+            <Button isIconOnly className="h-9 min-h-9 w-9 min-w-9 rounded-none" aria-label="Zoom in" onPress={() => mapRef.current?.zoomIn()}><Plus size={17} /></Button>
+            <Button isIconOnly className="h-9 min-h-9 w-9 min-w-9 rounded-none" aria-label="Zoom out" onPress={() => mapRef.current?.zoomOut()}><ButtonGroup.Separator /><Minus size={17} /></Button>
           </ButtonGroup>
-          <IconControl label="Center map" onPress={() => setZoom(1)}><LocateFixed size={17} /></IconControl>
+          <IconControl label="Center map" onPress={() => mapRef.current?.fitBounds(CONUS_BOUNDS, { padding: MAP_PADDING })}><LocateFixed size={17} /></IconControl>
         </div>
 
-        <Chip variant="secondary" className="absolute bottom-[94px] left-1/2 z-[8] -translate-x-1/2 border border-border bg-surface/80 px-2.5 py-1.5 text-xs text-muted backdrop-blur-lg max-[800px]:hidden">
+        <Chip variant="secondary" className="absolute bottom-[94px] left-1/2 z-[8] -translate-x-1/2 rounded-full border border-border bg-surface/80 px-3 py-1.5 text-[11px] text-muted material max-[800px]:hidden">
           <Info size={13} />
-          <Chip.Label>Select a state to explore its power mix</Chip.Label>
+          <Chip.Label>Drag to explore · select a pin for plant details</Chip.Label>
         </Chip>
 
-        <Card className="absolute bottom-4 left-[18px] z-10 h-[102px] w-[330px] gap-0 rounded-[15px] bg-surface/85 px-3.5 py-[13px] shadow-surface backdrop-blur-xl max-[800px]:bottom-2.5 max-[800px]:left-2.5 max-[800px]:h-[90px] max-[800px]:w-[220px]">
-          <Card.Header className="flex-row items-start justify-between">
-            <div>
-              <Card.Description className="text-[11px] leading-tight">16 July 2026</Card.Description>
-              <Card.Title className="mt-0.5 text-[13px] leading-tight font-semibold">15:30 EDT</Card.Title>
-            </div>
-            <Button size="sm" variant="ghost" className="h-6 min-h-6 gap-1 px-1 text-[11px] text-success"><Activity size={14} />Live data</Button>
-          </Card.Header>
-          <Card.Content className="gap-0">
-            <Slider defaultValue={97} minValue={0} maxValue={100} aria-label="Timeline position" className="mt-1.5 gap-0">
-              <Slider.Track className="h-4! border-x-[6px]!">
-                <Slider.Fill className="bg-gradient-to-r! from-[#4dc790]! via-[#edd65b]! to-[#db864a]! opacity-70" />
-                <Slider.Thumb className="w-4! after:size-3! after:rounded-full! after:bg-foreground!" />
-              </Slider.Track>
-            </Slider>
-            <div className="-mt-0.5 flex justify-between text-[10px] text-muted"><span>12am</span><span>6am</span><span>12pm</span><span>Now</span></div>
-          </Card.Content>
-        </Card>
-
-        <Card className="absolute right-[18px] bottom-4 z-10 w-[330px] gap-0 rounded-[15px] bg-surface/85 px-3.5 py-3 shadow-surface backdrop-blur-xl max-[800px]:right-2.5 max-[800px]:bottom-2.5 max-[800px]:w-[156px]">
+        <Card className={`absolute right-[18px] bottom-4 z-10 w-[330px] gap-0 px-4 py-3 ${FLOATING_PANEL_CLASS} max-[800px]:right-2.5 max-[800px]:bottom-2.5 max-[800px]:w-[156px]`}>
           <Card.Header className="flex-row items-center justify-between">
             <div className="flex flex-1 items-center justify-between">
-              <Card.Title className="text-[13px] leading-tight font-semibold">Generation source</Card.Title>
+              <Card.Title className="text-[12px] leading-5 font-semibold">Generation source</Card.Title>
               <span className="text-[10px] text-muted max-[800px]:hidden">Largest share</span>
             </div>
             <Tooltip delay={250}>
               <Button isIconOnly size="sm" variant="ghost" className="ml-1.5 h-6 min-h-6 w-6 min-w-6 text-muted" aria-label="About the generation source key"><Info size={14} /></Button>
-              <Tooltip.Content>Each state is coloured by its largest generation source</Tooltip.Content>
+              <Tooltip.Content>Plant markers are coloured by their generation source</Tooltip.Content>
             </Tooltip>
           </Card.Header>
           <Card.Content className="mt-2 grid grid-cols-3 gap-x-3 gap-y-2 max-[800px]:grid-cols-2">
             {GENERATION_SOURCES.map((source) => (
               <div className="flex min-w-0 items-center gap-1.5" key={source.name}>
-                <i className="size-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: source.color }} />
+                <i className="size-2 shrink-0 rounded-full" style={{ backgroundColor: source.color }} />
                 <span className="text-[10px] whitespace-nowrap text-muted">{source.name}</span>
               </div>
             ))}
           </Card.Content>
         </Card>
 
-        {hovered && !selected && <HoverCard datum={hovered} tooltipRef={hoverCardRef} />}
-        {selected && <StatePanel datum={selected} onClose={() => setSelectedId(null)} />}
+        {hoveredPlant && !selectedPlant && <HoverCard datum={hoveredPlant} tooltipRef={hoverCardRef} />}
+        {selectedPlant && <PlantPanel datum={selectedPlant} onClose={() => setSelectedPlantId(null)} />}
       </div>
     </main>
   )
