@@ -2,10 +2,10 @@
 @import "@heroui/styles";
 
 /* ---------------------------------------------------------------------------
-   Apple-flavoured theme layer.
+   Market-dashboard theme layer.
 
-   Colour, radius and material tokens follow Apple's system palette so the floating
-   map panels read like macOS/iOS place cards, set in Poppins.
+   Near-black canvas, flat bordered cards, one indigo accent and a reserved
+   green/red status pair — the language of a live data terminal, set in Inter.
 
    The token blocks are deliberately unlayered: HeroUI ships its own values inside
    @layer base, and unlayered rules beat layered ones whatever the order. Light is
@@ -13,100 +13,211 @@
    --------------------------------------------------------------------------- */
 
 @theme {
-  /* Poppins throughout; the system stack only covers the swap-in gap */
+  /* Inter throughout; the system stack only covers the swap-in gap */
   --font-sans:
-    "Poppins", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
     "Helvetica Neue", Arial, sans-serif;
+}
+
+@theme inline {
+  --color-tile: var(--tile);
 }
 
 :root,
 [data-theme="light"] {
-  /* 8px base: panels land on 16px, controls and grouped rows on 12px */
+  /* 8px base: cards land on 8-12px, pills on full round */
   --radius: 0.5rem;
   --field-radius: calc(var(--radius) * 1.5);
 
-  /* Blur on its own reads grey — the saturation boost is what makes it glass */
-  --material: blur(30px) saturate(180%);
-
-  --background: #f2f2f7;
+  --background: #f8fafd;
   --surface: #ffffff;
-  --surface-secondary: #f2f2f7;
-  --surface-tertiary: #e9e9ee;
+  --surface-secondary: #eff2f5;
+  --surface-tertiary: #e2e7ee;
   --overlay: #ffffff;
+  /* Header stat tiles: flat, borderless, plain surface in light */
+  --tile: var(--surface);
 
-  /* Apple's label and fill ramps are translucent so they sit on any material */
-  --muted: rgba(60, 60, 67, 0.6);
-  --default: rgba(120, 120, 128, 0.12);
-  --border: rgba(60, 60, 67, 0.16);
-  --separator: rgba(60, 60, 67, 0.11);
+  /* Form fields read as flat bordered panels, not HeroUI's lifted default.
+     Theme-agnostic, so these only need declaring once. */
+  --field-background: var(--surface);
+  --field-border: var(--border);
+  --field-border-width: 1px;
+  --field-shadow: 0 0 0 0 transparent inset;
 
-  --accent: #007aff;
-  --success: #34c759;
-  --warning: #ff9500;
-  --danger: #ff3b30;
+  --foreground: #0d1421;
+  --muted: #616e85;
+  --default: #eff2f5;
+  --default-foreground: #0d1421;
+  --border: #e3e8ef;
+  --separator: #eef1f5;
+  --segment: #ffffff;
+  --segment-foreground: #0d1421;
+
+  --accent: #3861fb;
+  --accent-foreground: #ffffff;
+  --success: #16a35f;
+  --success-foreground: #ffffff;
+  --warning: #d99000;
+  --warning-foreground: #ffffff;
+  --danger: #d92d43;
+  --danger-foreground: #ffffff;
+
+  /* Categorical slots, light steps. Order is the CVD-safety mechanism: the
+     legend, the mix bars and the map all read fuels in this sequence. */
+  --fuel-solar: #eda100;
+  --fuel-wind: #1baf7a;
+  --fuel-hydro: #2a78d6;
+  --fuel-gas: #eb6834;
+  --fuel-nuclear: #4a3aa7;
+  --fuel-battery: #e87ba4;
+
+  /* Recessive one-step-off-surface gray for gridlines and axis rules */
+  --grid: #e6eaf0;
 
   --surface-shadow:
-    0 0.5px 1px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(0, 0, 0, 0.06),
-    0 12px 32px rgba(0, 0, 0, 0.07);
+    0 1px 2px rgba(13, 20, 33, 0.04), 0 4px 12px rgba(13, 20, 33, 0.06);
   --overlay-shadow:
-    0 0.5px 2px rgba(0, 0, 0, 0.06), 0 8px 20px rgba(0, 0, 0, 0.08),
-    0 20px 48px rgba(0, 0, 0, 0.12);
+    0 4px 12px rgba(13, 20, 33, 0.08), 0 16px 40px rgba(13, 20, 33, 0.12);
 }
 
 .dark,
 [data-theme="dark"] {
-  --background: #000000;
-  --surface: #1c1c1e;
-  --surface-secondary: #2c2c2e;
-  --surface-tertiary: #3a3a3c;
-  --overlay: #1c1c1e;
+  --background: #0b0e14;
+  --surface: #181b23;
+  --surface-secondary: #20242f;
+  --surface-tertiary: #2a2f3d;
+  --overlay: #1a1e27;
+  /* One step up from the surface, so borderless tiles still lift off the page */
+  --tile: var(--surface-secondary);
 
-  --muted: rgba(235, 235, 245, 0.6);
-  --default: rgba(120, 120, 128, 0.24);
-  --border: rgba(255, 255, 255, 0.12);
-  --separator: rgba(255, 255, 255, 0.08);
-  --segment: #636366;
+  --foreground: #eaeef5;
+  --muted: #8b93a7;
+  --default: #20242f;
+  --default-foreground: #eaeef5;
+  --border: #262b38;
+  --separator: #1f2430;
+  --segment: #2e3444;
+  --segment-foreground: #eaeef5;
 
-  --accent: #0a84ff;
-  --success: #30d158;
-  --warning: #ff9f0a;
-  --danger: #ff453a;
+  --accent: #4d7cfe;
+  --accent-foreground: #ffffff;
+  --success: #16c784;
+  --success-foreground: #06130d;
+  --warning: #f0b90b;
+  --warning-foreground: #140f01;
+  --danger: #ea3943;
+  --danger-foreground: #ffffff;
 
-  --surface-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 20px rgba(0, 0, 0, 0.35);
-  --overlay-shadow: 0 2px 6px rgba(0, 0, 0, 0.5), 0 18px 50px rgba(0, 0, 0, 0.55);
-}
+  /* Same six hues, stepped for the dark surface — not an automatic flip */
+  --fuel-solar: #c98500;
+  --fuel-wind: #199e70;
+  --fuel-hydro: #3987e5;
+  --fuel-gas: #d95926;
+  --fuel-nuclear: #9085e9;
+  --fuel-battery: #d55181;
 
-/* Frosted panel backdrop, used by every floating surface.
-   Only the unprefixed property — the build adds -webkit- for Safari, and
-   declaring both makes it drop one of them. */
-@utility material {
-  backdrop-filter: var(--material);
+  --grid: #2b3242;
+
+  --surface-shadow: 0 0 0 0 transparent;
+  --overlay-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  --backdrop: rgba(6, 8, 13, 0.6);
 }
 
 @layer components {
-  /* Segmented control: a 2px-inset track with a rounded knob */
+  /* ---- Segmented control (Tabs) -----------------------------------------
+     A 2px-inset track with a lighter knob, as on the range switchers. */
+  .tabs {
+    @apply gap-0;
+  }
   .tabs__list-container {
-    border-radius: 10px;
+    @apply rounded-lg bg-surface-secondary;
   }
   .tabs__list {
-    padding: 2px;
+    @apply p-0.5;
   }
   .tabs__tab {
-    height: 28px;
-    border-radius: 8px;
-    font-size: 12px;
+    @apply h-7 rounded-md px-3 text-[12px] font-medium;
   }
-  /* The knob wants a tighter shadow than the card shadow it inherits */
+  .tabs__tab[data-selected="true"] {
+    @apply font-semibold;
+  }
   .tabs__indicator {
-    border-radius: 8px;
-    box-shadow:
-      0 3px 8px rgba(0, 0, 0, 0.12), 0 1px 1px rgba(0, 0, 0, 0.04);
+    @apply rounded-md bg-segment shadow-none;
   }
   .dark .tabs__indicator {
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    @apply bg-segment;
   }
 
-  /* Capsule track with a round knob, as on iOS scrubbers */
+  /* ---- Plant list (ListBox) ----------------------------------------------
+     Flat rows straight on the sidebar ground: a quiet fill on hover and an
+     accent wash for the open plant. */
+  .plant-list {
+    @apply p-1.5;
+  }
+  .plant-list > * + * {
+    @apply mt-0.5;
+  }
+  .plant-list .list-box-item {
+    @apply min-h-0 gap-3 rounded-lg px-2.5 py-2;
+  }
+  @media (hover: hover) {
+    .plant-list .list-box-item:hover,
+    .plant-list .list-box-item[data-hovered="true"] {
+      @apply bg-surface-secondary;
+    }
+  }
+  .plant-list .list-box-item[data-selected="true"] {
+    @apply bg-accent-soft;
+  }
+
+  /* ---- Segmented control (ToggleButtonGroup) -----------------------------
+     The Tabs track and knob, for single-choice filters that switch no panel.
+     First/last-child selectors are listed to out-rank the group's pill ends. */
+  .segmented {
+    @apply rounded-lg bg-surface-secondary p-0.5;
+  }
+  .segmented .toggle-button,
+  .segmented .toggle-button:first-child,
+  .segmented .toggle-button:last-child {
+    --toggle-button-bg: transparent;
+    --toggle-button-bg-hover: transparent;
+    --toggle-button-bg-pressed: transparent;
+    --toggle-button-fg: var(--muted);
+    --toggle-button-bg-selected: var(--segment);
+    --toggle-button-bg-selected-hover: var(--segment);
+    --toggle-button-bg-selected-pressed: var(--segment);
+    --toggle-button-fg-selected: var(--segment-foreground);
+    @apply h-7 rounded-md px-3 text-[12px] font-medium;
+  }
+  .segmented .toggle-button[data-selected="true"] {
+    @apply font-semibold;
+  }
+
+  /* ---- Range slider ------------------------------------------------------
+     A slim rail with a ring knob, sized for a stack of filters rather than
+     HeroUI's full-height capsule. React Aria centres each thumb with
+     translate(-50%, -50%), so only the sizes change; the rail's transparent
+     side borders stay at half the knob width so the ends still line up. */
+  .range-slider[data-orientation="horizontal"] .slider__track {
+    @apply my-1.5 h-1 border-x-8;
+  }
+  .range-slider[data-orientation="horizontal"] .slider__thumb {
+    @apply size-4 bg-transparent;
+  }
+  .range-slider[data-orientation="horizontal"] .slider__thumb::after {
+    @apply size-4 rounded-full border-2 border-accent bg-overlay;
+  }
+
+  /* ---- Select menus ------------------------------------------------------
+     Pulled in from HeroUI's 24px pill radius to the panels' 12px. */
+  .select__popover {
+    @apply rounded-xl border border-border;
+  }
+  .select__popover .list-box-item {
+    @apply min-h-8 rounded-lg text-[12px];
+  }
+
+  /* Capsule track with a round knob */
   .slider__track,
   .slider__thumb,
   .slider__thumb::after {
@@ -114,26 +225,32 @@
   }
 }
 
-/* Poppins sets wide by default. Tightening at the root keeps every surface —
-   including portalled overlays — on the same footing; only the uppercase
-   micro-labels opt back out with positive tracking. */
+/* Inter needs only a hair of negative tracking; the uppercase micro-labels
+   opt back out with positive tracking of their own. */
 html {
-  letter-spacing: -0.025em;
+  letter-spacing: -0.01em;
 }
 
-/* Prefer semibold over heavy bold for an SF Pro-style tone */
+body {
+  overscroll-behavior: none;
+}
+
+/* Semibold carries headings — 700 is reserved for the figures */
 strong {
   font-weight: 600;
 }
 
-/* Lift Mapbox attribution & logo above the floating bottom cards
-   (scoped under .mapboxgl-map to out-rank mapbox's own bottom: 0) */
+/* Mapbox's own chrome, pulled clear of the floating cards and restyled to
+   match the panels (scoped under .mapboxgl-map to out-rank mapbox's defaults) */
 .mapboxgl-map .mapboxgl-ctrl-bottom-left {
-  bottom: 126px;
+  bottom: 4px;
 }
 .mapboxgl-map .mapboxgl-ctrl-bottom-right {
-  bottom: 96px;
+  bottom: 4px;
 }
 .mapboxgl-map .mapboxgl-ctrl-attrib.mapboxgl-compact {
-  border-radius: 9999px;
+  @apply rounded-md border border-border bg-surface/90 text-muted;
+}
+.mapboxgl-map .mapboxgl-ctrl-attrib a {
+  @apply text-muted;
 }
