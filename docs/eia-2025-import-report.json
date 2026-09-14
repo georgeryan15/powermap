@@ -1,0 +1,37 @@
+{
+  "import_id": "eia-2025-181ef0c821bedc36",
+  "year": 2025,
+  "warning": "2025 early release: incomplete and not fully edited. Do not use for state, regional or national totals.",
+  "counts": {
+    "plant_year_metrics": 16935,
+    "import_runs": 1,
+    "source_files": 46,
+    "organizations": 8522,
+    "plants": 16935,
+    "generators": 36106,
+    "plant_snapshots": 16935,
+    "generator_snapshots": 36106,
+    "generator_fuels": 51116,
+    "generator_ownership": 37738,
+    "source_records": 230394,
+    "import_issues": 2192
+  },
+  "issues": {
+    "invalid_coordinates": 33,
+    "coordinates_outside_reported_state": 7,
+    "generator_without_plant_record": 2,
+    "invalid_service_month": 121,
+    "unknown_service_dates": 6,
+    "invalid_ownership": 1,
+    "ownership_incomplete": 31,
+    "ownership_exceeds_100_percent": 1,
+    "storage_in_main_generation": 864,
+    "generation_without_860_plant": 757,
+    "capacity_factor_out_of_range": 97,
+    "generation_without_eligible_capacity": 56,
+    "generator_schedule_differs_from_plant_total": 216
+  },
+  "mapped_plants": 16893,
+  "plants_with_generation": 12786,
+  "method": "Plant Code joins. Generator register owns capacity. Page 1 owns non-storage generation. Storage separate. Capacity factor is net generation / month-prorated nameplate capacity-hours."
+}

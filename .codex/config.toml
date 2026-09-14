@@ -4,3 +4,6 @@ args = [
     "-y",
     "@heroui/react-mcp@latest",
 ]
+
+[mcp_servers.supabase]
+url = "https://mcp.supabase.com/mcp?project_ref=wyomahotilotufvdpior"

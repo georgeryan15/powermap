@@ -1,0 +1,7 @@
+server/import-output/
+server/.venv/
+**/__pycache__/
+.agents/
+skills-lock.json
+.DS_Store
+supabase/.temp/
