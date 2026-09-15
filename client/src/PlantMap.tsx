@@ -12,10 +12,9 @@ const bounds: [[number, number], [number, number]] = [
   [-125.5, 24.2],
   [-66.4, 49.8],
 ]
-const styles = {
-  light: 'mapbox://styles/mapbox/light-v11',
-  dark: 'mapbox://styles/mapbox/dark-v11',
-}
+const mapStyle = 'mapbox://styles/mapbox/standard'
+const lightPreset = (theme: 'light' | 'dark') =>
+  theme === 'dark' ? 'night' : 'day'
 const colors = [
   'match',
   ['get', 'fuel'],
@@ -57,7 +56,10 @@ export function PlantMap({
     const instance = new mapboxgl.Map({
       container: container.current,
       accessToken: token,
-      style: styles[latest.current.theme],
+      style: mapStyle,
+      config: {
+        basemap: { lightPreset: lightPreset(latest.current.theme) },
+      },
       bounds,
       fitBoundsOptions: { padding: 40 },
       minZoom: 1,
@@ -195,7 +197,19 @@ export function PlantMap({
     const m = map.current
     if (m && appliedTheme.current !== theme) {
       appliedTheme.current = theme
-      m.setStyle(styles[theme])
+      m.setConfigProperty('basemap', 'lightPreset', lightPreset(theme))
+      if (m.getLayer('clusters'))
+        m.setPaintProperty(
+          'clusters',
+          'circle-color',
+          theme === 'dark' ? '#2e3444' : '#27334d',
+        )
+      if (m.getLayer('points'))
+        m.setPaintProperty(
+          'points',
+          'circle-stroke-color',
+          theme === 'dark' ? '#11151f' : '#ffffff',
+        )
     }
   }, [theme])
   useEffect(() => {
