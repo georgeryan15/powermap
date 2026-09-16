@@ -147,17 +147,6 @@ function App() {
         <div className="header-actions">
           <Button
             size="sm"
-            variant="ghost"
-            onPress={() => searchRef.current?.focus()}
-            aria-label="Find a plant"
-            className="search-shortcut"
-          >
-            <Search size={14} />
-            <span>Find a plant</span>
-            <kbd>⌘ K</kbd>
-          </Button>
-          <Button
-            size="sm"
             variant="secondary"
             isIconOnly
             aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}

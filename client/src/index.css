@@ -309,17 +309,6 @@ strong {
   gap: 8px;
   align-items: center;
 }
-.search-shortcut {
-  gap: 8px !important;
-  color: var(--muted) !important;
-}
-.search-shortcut kbd {
-  margin-left: 12px;
-  font-size: 10px;
-  border: 1px solid var(--border);
-  padding: 1px 4px;
-  border-radius: 4px;
-}
 .dataset-strip {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -887,9 +876,6 @@ summary {
   .app-header {
     padding: 0 14px;
     gap: 10px;
-  }
-  .search-shortcut {
-    display: none !important;
   }
   .release-badge {
     font-size: 9px;
