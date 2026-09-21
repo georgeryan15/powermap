@@ -1,25 +1,38 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button } from '@heroui/react'
+import {
+  Button,
+  Card,
+  ListBox,
+  SearchField,
+  Spinner,
+  Switch,
+  ToggleButton,
+} from '@heroui/react'
 import {
   ChevronLeft,
   ChevronRight,
   Factory,
+  Globe2,
   MapPin,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Search,
+  SlidersHorizontal,
   Sun,
   Zap,
 } from 'lucide-react'
 import { PlantMap } from './PlantMap'
 import { PlantDetail } from './PlantDetail'
+import { AppleSelect, IconButton } from './AppleUI'
+import { DatasetInfo, DatasetSummary } from './DatasetSummary'
+import { usePowerMapTheme } from './theme'
 import { FUEL_COLORS, format, getJson } from './plants'
 import type { Dataset, Plant } from './plants'
 
 const PAGE_SIZE = 75
 function App() {
-  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
-    localStorage.getItem('powermap-theme') === 'light' ? 'light' : 'dark',
-  )
+  const { theme, setTheme } = usePowerMapTheme()
   const [plants, setPlants] = useState<Plant[]>([]),
     [dataset, setDataset] = useState<Dataset | null>(null)
   const [error, setError] = useState<string | null>(null),
@@ -32,14 +45,9 @@ function App() {
   const [sort, setSort] = useState('capacity'),
     [page, setPage] = useState(0),
     [selectedId, setSelectedId] = useState<number | null>(null)
-  const [mobileView, setMobileView] = useState('list'),
-    searchRef = useRef<HTMLInputElement>(null)
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-    document.documentElement.style.colorScheme = theme
-    localStorage.setItem('powermap-theme', theme)
-  }, [theme])
+  const [browserOpen, setBrowserOpen] = useState(true)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const searchRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true)
@@ -64,8 +72,9 @@ function App() {
     const listener = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
-        setMobileView('list')
-        searchRef.current?.focus()
+        setSelectedId(null)
+        setBrowserOpen(true)
+        requestAnimationFrame(() => searchRef.current?.focus())
       }
     }
     window.addEventListener('keydown', listener)
@@ -125,9 +134,20 @@ function App() {
     fn()
     setPage(0)
   }
+  const activeFilters = [fuel, region, status].filter(Boolean).length
   return (
-    <main className="power-app">
-      <header className="app-header">
+    <main
+      className={`power-app ${browserOpen ? 'browser-open' : 'browser-closed'} ${selected ? 'detail-open' : ''}`}
+    >
+      <PlantMap
+        plants={visible}
+        selected={selected}
+        theme={theme}
+        onSelect={setSelectedId}
+        browserOpen={browserOpen}
+      />
+
+      <header className="app-header floating-surface">
         <a
           href="#"
           className="brand"
@@ -135,183 +155,171 @@ function App() {
             e.preventDefault()
             reset()
             setSelectedId(null)
+            setBrowserOpen(true)
           }}
         >
-          <span>
-            <Zap size={17} fill="currentColor" />
+          <span className="brand-mark">
+            <Zap size={21} fill="currentColor" />
           </span>
-          PowerMap
+          <span className="brand-copy">
+            <strong>PowerMap</strong>
+            <span>The U.S. power plant atlas</span>
+          </span>
         </a>
-        <span className="release-badge">2025 · Early release</span>
-        <span className="header-subtitle">U.S. power plant explorer</span>
+        <div className="header-location">
+          <Globe2 size={15} />
+          <span>United States</span>
+          <span className="header-divider" />
+          <span>2025</span>
+        </div>
         <div className="header-actions">
-          <Button
+          <DatasetInfo dataset={dataset} />
+          <Switch
+            aria-label="Use dark mode"
             size="sm"
-            variant="secondary"
-            isIconOnly
-            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-            onPress={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+            isSelected={theme === 'dark'}
+            onChange={(dark) => setTheme(dark ? 'dark' : 'light')}
           >
-            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-          </Button>
+            <Switch.Content>
+              <span className="theme-label">
+                {theme === 'dark' ? <Moon size={15} /> : <Sun size={15} />}
+                <span>Dark mode</span>
+              </span>
+              <Switch.Control>
+                <Switch.Thumb />
+              </Switch.Control>
+            </Switch.Content>
+          </Switch>
         </div>
       </header>
-      <div className="dataset-strip">
-        <div>
-          <span>Plants in catalogue</span>
-          <strong>{loading ? '—' : format(plants.length, 0)}</strong>
+
+      {!browserOpen && (
+        <div className="open-browser floating-surface">
+          <Button variant="tertiary" onPress={() => setBrowserOpen(true)}>
+            <PanelLeftOpen size={17} />
+            Explore plants
+          </Button>
         </div>
-        <div>
-          <span>With map coordinates</span>
-          <strong>
-            {dataset ? format(dataset.report.mapped_plants, 0) : '—'}
-          </strong>
-        </div>
-        <div>
-          <span>With annual generation</span>
-          <strong>
-            {dataset ? format(dataset.report.plants_with_generation, 0) : '—'}
-          </strong>
-        </div>
-        <div>
-          <span>Reporting basis</span>
-          <strong className="reporting-basis">EIA-860 + EIA-923</strong>
-        </div>
-      </div>
-      <div className="release-note">
-        {dataset?.warning ||
-          '2025 early release data. Plant-level records may be incomplete; not suitable for state, regional or national totals.'}
-      </div>
-      <div className="mobile-switch">
-        <Button
-          size="sm"
-          variant={mobileView === 'list' ? 'primary' : 'secondary'}
-          onPress={() => setMobileView('list')}
+      )}
+
+      {browserOpen && (
+        <aside
+          className="plant-browser floating-surface"
+          aria-label="Plant browser"
         >
-          Plant list
-        </Button>
-        <Button
-          size="sm"
-          variant={mobileView === 'map' ? 'primary' : 'secondary'}
-          onPress={() => setMobileView('map')}
-        >
-          Map
-        </Button>
-      </div>
-      <div className={`explorer mobile-${mobileView}`}>
-        <section className="map-region">
-          <PlantMap
-            plants={visible}
-            selected={selected}
-            theme={theme}
-            onSelect={setSelectedId}
-          />
-          <div className="map-legend">
-            <span className="eyebrow">Plant sources</span>
-            <div>
-              {Object.entries(FUEL_COLORS)
-                .filter(([f]) => fuels.includes(f))
-                .map(([f, c]) => (
-                  <button
-                    type="button"
-                    key={f}
-                    aria-pressed={fuel === f}
-                    onClick={() => changed(() => setFuel(fuel === f ? '' : f))}
-                  >
-                    <i style={{ background: c }} />
-                    {f}
-                  </button>
-                ))}
-            </div>
-          </div>
-        </section>
-        <aside className="plant-browser">
           <div className="browser-heading">
-            <h1>Power plants</h1>
-            <span>Plant-level records</span>
+            <div>
+              <span className="eyebrow">Discover the grid</span>
+              <h1>Explore power plants</h1>
+            </div>
+            <IconButton
+              label="Hide plant browser"
+              onPress={() => setBrowserOpen(false)}
+            >
+              <PanelLeftClose size={18} />
+            </IconButton>
           </div>
           <div className="browser-filters">
-            <label className="search-input">
-              <Search size={15} />
-              <input
-                ref={searchRef}
-                aria-label="Search plants, operators or EIA IDs"
-                placeholder="Search plants, operators or EIA IDs"
-                value={query}
-                onChange={(e) => changed(() => setQuery(e.target.value))}
+            <SearchField
+              aria-label="Search plants, operators or EIA IDs"
+              value={query}
+              onChange={(value) => changed(() => setQuery(value))}
+            >
+              <SearchField.Group>
+                <SearchField.SearchIcon />
+                <SearchField.Input
+                  ref={searchRef}
+                  placeholder="Plant, operator or EIA ID"
+                />
+                {query ? <SearchField.ClearButton /> : <kbd>⌘ K</kbd>}
+              </SearchField.Group>
+            </SearchField>
+            <div className="filter-toolbar">
+              <Button
+                size="sm"
+                variant="tertiary"
+                className={activeFilters ? 'has-filters' : ''}
+                aria-expanded={filtersOpen}
+                aria-controls="plant-filters"
+                onPress={() => setFiltersOpen(!filtersOpen)}
+              >
+                <SlidersHorizontal size={14} />
+                Filters
+                {activeFilters > 0 && (
+                  <span className="filter-count">{activeFilters}</span>
+                )}
+              </Button>
+              <AppleSelect
+                label="Sort by"
+                value={sort}
+                onChange={(v) => changed(() => setSort(v))}
+                options={[
+                  { value: 'capacity', label: 'Highest capacity' },
+                  { value: 'generation', label: 'Annual generation' },
+                  { value: 'name', label: 'Plant name' },
+                  { value: 'newest', label: 'First commissioned' },
+                ]}
               />
-            </label>
-            <div className="filter-grid">
-              <label className="field-label">
-                Fuel source
-                <select
-                  value={fuel}
-                  onChange={(e) => changed(() => setFuel(e.target.value))}
-                >
-                  <option value="">All sources</option>
-                  {fuels.map((f) => (
-                    <option key={f}>{f}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="field-label">
-                State
-                <select
-                  value={region}
-                  onChange={(e) => changed(() => setRegion(e.target.value))}
-                >
-                  <option value="">All states</option>
-                  {states.map((s) => (
-                    <option key={s}>{s}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="field-label">
-                Status
-                <select
-                  value={status}
-                  onChange={(e) => changed(() => setStatus(e.target.value))}
-                >
-                  <option value="">All statuses</option>
-                  {statuses.map((s) => (
-                    <option key={s}>{s}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="field-label">
-                Sort by
-                <select
-                  value={sort}
-                  onChange={(e) => changed(() => setSort(e.target.value))}
-                >
-                  <option value="capacity">Nameplate capacity</option>
-                  <option value="generation">Annual generation</option>
-                  <option value="name">Plant name</option>
-                  <option value="newest">First commissioned</option>
-                </select>
-              </label>
             </div>
+            {filtersOpen && (
+              <div className="filter-grid" id="plant-filters">
+                <AppleSelect
+                  label="Fuel source"
+                  value={fuel}
+                  onChange={(v) => changed(() => setFuel(v))}
+                  options={[
+                    { value: '', label: 'All sources' },
+                    ...fuels.map((v) => ({ value: v, label: v })),
+                  ]}
+                />
+                <AppleSelect
+                  label="State"
+                  value={region}
+                  onChange={(v) => changed(() => setRegion(v))}
+                  options={[
+                    { value: '', label: 'All states' },
+                    ...states.map((v) => ({ value: v, label: v })),
+                  ]}
+                />
+                <AppleSelect
+                  label="Status"
+                  value={status}
+                  onChange={(v) => changed(() => setStatus(v))}
+                  options={[
+                    { value: '', label: 'All statuses' },
+                    ...statuses.map((v) => ({ value: v, label: v })),
+                  ]}
+                />
+                <Button variant="tertiary" size="sm" onPress={reset}>
+                  Reset filters
+                </Button>
+              </div>
+            )}
+            {activeFilters > 0 && !filtersOpen && (
+              <div className="active-filter-summary">
+                {[fuel, region, status].filter(Boolean).join(' · ')}
+              </div>
+            )}
           </div>
           <div className="results-caption">
-            <span>
-              {format(visible.length, 0)}{' '}
-              {visible.length === 1 ? 'plant' : 'plants'}
-              {visible.length !== plants.length
-                ? ` of ${format(plants.length, 0)}`
-                : ''}
+            <span role="status">
+              {loading
+                ? 'Loading plants'
+                : `${format(visible.length, 0)} ${visible.length === 1 ? 'plant' : 'plants'}`}
             </span>
-            {(query || fuel || region || status) && (
-              <button type="button" onClick={reset}>
-                Clear filters
-              </button>
+            {(query || activeFilters > 0) && (
+              <Button size="sm" variant="tertiary" onPress={reset}>
+                Clear
+              </Button>
             )}
-            <span>Nameplate MW</span>
+            <span>Capacity · MW</span>
           </div>
           <div className="plant-results" aria-busy={loading}>
             {loading ? (
-              <p className="empty-note" role="status">
-                Loading government plant records…
-              </p>
+              <div className="empty-note" role="status">
+                <Spinner size="sm" />
+                <p>Loading plant records…</p>
+              </div>
             ) : error ? (
               <div className="empty-note" role="alert">
                 <p>{error}</p>
@@ -324,7 +332,7 @@ function App() {
               </div>
             ) : visible.length === 0 ? (
               <div className="empty-note">
-                <Search size={22} />
+                <Search size={24} />
                 <h2>No plants match</h2>
                 <p>Try another name, source, state or status.</p>
                 <Button variant="secondary" onPress={reset}>
@@ -332,85 +340,129 @@ function App() {
                 </Button>
               </div>
             ) : (
-              visible
-                .slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE)
-                .map((p) => (
-                  <button
-                    type="button"
-                    className={`plant-row ${selectedId === p.id ? 'is-selected' : ''}`}
-                    key={p.id}
-                    onClick={() => setSelectedId(p.id)}
-                    aria-label={`Open ${p.name}, EIA plant ${p.id}`}
-                  >
-                    <span
-                      className="plant-icon"
-                      style={{
-                        color: FUEL_COLORS[p.primary_fuel] || FUEL_COLORS.Other,
-                      }}
+              <ListBox
+                aria-label="Power plants"
+                selectionMode="single"
+                selectedKeys={selectedId == null ? [] : [selectedId]}
+                onAction={(key) => setSelectedId(Number(key))}
+                className="plant-list"
+              >
+                {visible
+                  .slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE)
+                  .map((p) => (
+                    <ListBox.Item
+                      id={p.id}
+                      key={p.id}
+                      textValue={`${p.name}, ${p.state}, EIA ${p.id}`}
+                      className="plant-row"
                     >
-                      <Factory size={16} />
-                    </span>
-                    <span className="plant-row-copy">
-                      <span className="plant-row-title">
-                        <strong>{p.name}</strong>
-                        <b>{format(p.nameplate_mw)}</b>
+                      <span
+                        className="plant-icon"
+                        style={{
+                          color:
+                            FUEL_COLORS[p.primary_fuel] || FUEL_COLORS.Other,
+                        }}
+                      >
+                        <Factory size={17} />
                       </span>
-                      <span className="plant-row-meta">
-                        <span>
-                          {p.primary_fuel}
-                          {p.fuel_types.length > 1
-                            ? ` +${p.fuel_types.length - 1}`
-                            : ''}{' '}
-                          · {p.state} · {p.operable_unit_count} units
+                      <span className="plant-row-copy">
+                        <span className="plant-row-title">
+                          <strong>{p.name}</strong>
+                          <b>{format(p.nameplate_mw)}</b>
                         </span>
-                        <span>
-                          {p.status === 'Operating'
-                            ? 'Operating'
-                            : p.status === 'Standby / out of service'
-                              ? 'Standby / offline'
-                              : p.status}
-                        </span>
-                      </span>
-                      <span className="plant-row-id">
-                        EIA {p.id}
-                        {p.latitude == null && (
+                        <span className="plant-row-meta">
                           <span>
-                            <MapPin size={10} /> Location under review
+                            {p.primary_fuel}
+                            {p.fuel_types.length > 1
+                              ? ` +${p.fuel_types.length - 1}`
+                              : ''}{' '}
+                            · {p.state ?? '—'}
                           </span>
-                        )}
+                          <span>{p.operable_unit_count} units</span>
+                        </span>
+                        <span className="plant-row-id">
+                          EIA {p.id}
+                          <span>
+                            {p.latitude == null ? (
+                              <>
+                                <MapPin size={10} />
+                                Location under review
+                              </>
+                            ) : (
+                              p.status
+                            )}
+                          </span>
+                        </span>
                       </span>
-                    </span>
-                  </button>
-                ))
+                    </ListBox.Item>
+                  ))}
+              </ListBox>
             )}
           </div>
           <div className="pagination">
-            <Button
-              isIconOnly
-              size="sm"
-              variant="secondary"
-              aria-label="Previous plants"
+            <IconButton
+              label="Previous plants"
               isDisabled={currentPage === 0}
               onPress={() => setPage((p) => p - 1)}
             >
               <ChevronLeft size={16} />
-            </Button>
+            </IconButton>
             <span>
-              Page {currentPage + 1} of {pageCount}
+              {currentPage + 1} <span className="pagination-separator">/</span>{' '}
+              {pageCount}
             </span>
-            <Button
-              isIconOnly
-              size="sm"
-              variant="secondary"
-              aria-label="Next plants"
+            <IconButton
+              label="Next plants"
               isDisabled={currentPage + 1 >= pageCount}
               onPress={() => setPage((p) => p + 1)}
             >
               <ChevronRight size={16} />
-            </Button>
+            </IconButton>
+          </div>
+          <div className="browser-footer">
+            <span className="status-dot" />
+            EIA-860 & EIA-923<span>2025 data</span>
           </div>
         </aside>
-      </div>
+      )}
+
+      {!selected && (
+        <DatasetSummary
+          plants={plants}
+          visible={visible}
+          dataset={dataset}
+          loading={loading}
+          error={error}
+          onFuelSelect={(value) =>
+            changed(() => setFuel(fuel === value ? '' : value))
+          }
+        />
+      )}
+
+      <Card
+        className="map-legend floating-surface"
+        aria-label="Map source filters"
+      >
+        <span className="legend-label">Energy sources</span>
+        <div>
+          {Object.entries(FUEL_COLORS)
+            .filter(([f]) => fuels.includes(f))
+            .map(([f, c]) => (
+              <ToggleButton
+                key={f}
+                size="sm"
+                isSelected={fuel === f}
+                onChange={(isSelected) =>
+                  changed(() => setFuel(isSelected ? f : ''))
+                }
+                className="legend-toggle"
+              >
+                <i style={{ background: c }} />
+                {f}
+              </ToggleButton>
+            ))}
+        </div>
+      </Card>
       {selected && (
         <PlantDetail
           key={selected.id}

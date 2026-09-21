@@ -12,9 +12,38 @@ const bounds: [[number, number], [number, number]] = [
   [-125.5, 24.2],
   [-66.4, 49.8],
 ]
-const mapStyle = 'mapbox://styles/mapbox/standard'
-const lightPreset = (theme: 'light' | 'dark') =>
-  theme === 'dark' ? 'night' : 'day'
+const mapStyle = (theme: 'light' | 'dark') =>
+  theme === 'dark'
+    ? 'mapbox://styles/mapbox/dark-v11'
+    : 'mapbox://styles/mapbox/streets-v12'
+
+function viewportPadding(browserOpen: boolean, detailOpen: boolean) {
+  const width = window.innerWidth
+  if (width <= 640)
+    return {
+      top: 100,
+      bottom:
+        browserOpen && !detailOpen
+          ? Math.min(window.innerHeight * 0.6 + 40, window.innerHeight - 180)
+          : 80,
+      left: 25,
+      right: 50,
+    }
+  const browserWidth = width >= 1600 ? 380 : width > 1200 ? 360 : 330
+  const detailWidth = width >= 1600 ? 480 : width > 1200 ? 454 : 414
+  return {
+    top: 130,
+    bottom: 170,
+    left: browserOpen && !(detailOpen && width <= 960) ? browserWidth + 48 : 48,
+    right: detailOpen
+      ? detailWidth + 48
+      : width > 960
+        ? width > 1200
+          ? 328
+          : 304
+        : 60,
+  }
+}
 const colors = [
   'match',
   ['get', 'fuel'],
@@ -38,16 +67,18 @@ export function PlantMap({
   selected,
   theme,
   onSelect,
+  browserOpen,
 }: {
   plants: Plant[]
   selected: Plant | null
   theme: 'light' | 'dark'
   onSelect: (id: number) => void
+  browserOpen: boolean
 }) {
   const container = useRef<HTMLDivElement>(null),
     map = useRef<mapboxgl.Map | null>(null)
-  const latest = useRef({ plants, selected, theme, onSelect })
-  latest.current = { plants, selected, theme, onSelect }
+  const latest = useRef({ plants, selected, theme, onSelect, browserOpen })
+  latest.current = { plants, selected, theme, onSelect, browserOpen }
   const appliedTheme = useRef(theme)
   const [hover, setHover] = useState<Plant | null>(null),
     [error, setError] = useState<string | null>(null)
@@ -56,12 +87,14 @@ export function PlantMap({
     const instance = new mapboxgl.Map({
       container: container.current,
       accessToken: token,
-      style: mapStyle,
-      config: {
-        basemap: { lightPreset: lightPreset(latest.current.theme) },
-      },
+      style: mapStyle(latest.current.theme),
       bounds,
-      fitBoundsOptions: { padding: 40 },
+      fitBoundsOptions: {
+        padding: viewportPadding(
+          latest.current.browserOpen,
+          !!latest.current.selected,
+        ),
+      },
       minZoom: 1,
       maxZoom: 15,
       attributionControl: false,
@@ -72,7 +105,12 @@ export function PlantMap({
       new mapboxgl.AttributionControl({ compact: true }),
       'bottom-right',
     )
-    const observer = new ResizeObserver(() => instance.resize())
+    const observer = new ResizeObserver(() => {
+      instance.resize()
+      instance.setPadding(
+        viewportPadding(latest.current.browserOpen, !!latest.current.selected),
+      )
+    })
     observer.observe(container.current)
     instance.on('error', (event) => {
       if (map.current !== instance) return
@@ -107,10 +145,10 @@ export function PlantMap({
         filter: ['has', 'point_count'],
         paint: {
           'circle-color':
-            latest.current.theme === 'dark' ? '#2e3444' : '#27334d',
+            latest.current.theme === 'dark' ? '#e5e5ea' : '#ffffff',
           'circle-radius': 16,
           'circle-stroke-width': 2,
-          'circle-stroke-color': 'rgba(135,147,167,0.33)',
+          'circle-stroke-color': 'rgba(115,115,115,0.25)',
         },
       })
       instance.addLayer({
@@ -121,8 +159,10 @@ export function PlantMap({
         layout: {
           'text-field': ['get', 'point_count_abbreviated'],
           'text-size': 11,
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
         },
-        paint: { 'text-color': '#ffffff' },
+        paint: { 'text-color': '#1d1d1f' },
       })
       instance.addLayer({
         id: 'points',
@@ -134,14 +174,17 @@ export function PlantMap({
           'circle-radius': 5,
           'circle-stroke-width': 1.5,
           'circle-stroke-color':
-            latest.current.theme === 'dark' ? '#11151f' : '#ffffff',
+            latest.current.theme === 'dark' ? '#1c1c1e' : '#ffffff',
         },
+      })
+      instance.addSource('selected-plant', {
+        type: 'geojson',
+        data: geojson(latest.current.selected ? [latest.current.selected] : []),
       })
       instance.addLayer({
         id: 'selected',
         type: 'circle',
-        source: 'plants',
-        filter: ['==', ['get', 'id'], latest.current.selected?.id ?? -1],
+        source: 'selected-plant',
         paint: {
           'circle-radius': 10,
           'circle-opacity': 0,
@@ -197,19 +240,11 @@ export function PlantMap({
     const m = map.current
     if (m && appliedTheme.current !== theme) {
       appliedTheme.current = theme
-      m.setConfigProperty('basemap', 'lightPreset', lightPreset(theme))
-      if (m.getLayer('clusters'))
-        m.setPaintProperty(
-          'clusters',
-          'circle-color',
-          theme === 'dark' ? '#2e3444' : '#27334d',
-        )
-      if (m.getLayer('points'))
-        m.setPaintProperty(
-          'points',
-          'circle-stroke-color',
-          theme === 'dark' ? '#11151f' : '#ffffff',
-        )
+      m.setStyle(mapStyle(theme), {
+        diff: false,
+        localFontFamily: undefined,
+        localIdeographFontFamily: undefined,
+      })
     }
   }, [theme])
   useEffect(() => {
@@ -220,15 +255,24 @@ export function PlantMap({
   useEffect(() => {
     const m = map.current
     if (!m) return
-    if (m.getLayer('selected'))
-      m.setFilter('selected', ['==', ['get', 'id'], selected?.id ?? -1])
+    ;(m.getSource('selected-plant') as GeoJSONSource | undefined)?.setData(
+      geojson(selected ? [selected] : []),
+    )
     if (selected?.latitude != null && selected.longitude != null)
       m.easeTo({
         center: [selected.longitude, selected.latitude],
         zoom: Math.max(m.getZoom(), 7),
-        duration: 600,
+        duration: matchMedia('(prefers-reduced-motion: reduce)').matches
+          ? 0
+          : 600,
+        padding: viewportPadding(browserOpen, true),
       })
-  }, [selected])
+    else
+      m.easeTo({
+        padding: viewportPadding(browserOpen, !!selected),
+        duration: 0,
+      })
+  }, [selected, browserOpen])
   return (
     <div className="plant-map">
       <div
@@ -267,7 +311,14 @@ export function PlantMap({
           size="sm"
           variant="secondary"
           aria-label="Fit contiguous United States"
-          onPress={() => map.current?.fitBounds(bounds, { padding: 40 })}
+          onPress={() =>
+            map.current?.fitBounds(bounds, {
+              padding: viewportPadding(browserOpen, !!selected),
+              duration: matchMedia('(prefers-reduced-motion: reduce)').matches
+                ? 0
+                : 600,
+            })
+          }
         >
           <LocateFixed size={16} />
         </Button>
